@@ -18,6 +18,15 @@ export interface EVPRecording {
   createdAt: string;
 }
 
+export interface MapPin {
+  id: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+  color: string;
+  createdAt: string;
+}
+
 export interface JournalEntry {
   id: string;
   category: JournalCategory;
@@ -32,6 +41,9 @@ export interface JournalEntry {
   notes: string;
   imageUrl?: string;
   createdAt: string;
+  latitude?: number;
+  longitude?: number;
+  pins?: MapPin[];
 }
 
 interface JournalState {
@@ -42,6 +54,9 @@ interface JournalState {
   addEntry: (entry: JournalEntry) => void;
   deleteEntry: (id: string) => void;
   updateEntry: (id: string, updates: Partial<Omit<JournalEntry, 'id' | 'category' | 'createdAt'>>) => void;
+  addPin: (entryId: string, pin: MapPin) => void;
+  updatePin: (entryId: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => void;
+  deletePin: (entryId: string, pinId: string) => void;
   setBackgroundImageUrl: (url: string) => void;
   addSavedBackground: (url: string) => void;
   removeSavedBackground: (url: string) => void;
@@ -128,6 +143,34 @@ export const useJournalStore = create<JournalState>()(
               .join(',')
           )
           .join('\n');
+      },
+
+      addPin: (entryId: string, pin: MapPin) => {
+        set((state) => ({
+          entries: state.entries.map((e) =>
+            e.id === entryId ? { ...e, pins: [...(e.pins ?? []), pin] } : e
+          ),
+        }));
+      },
+
+      updatePin: (entryId: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => {
+        set((state) => ({
+          entries: state.entries.map((e) =>
+            e.id === entryId
+              ? { ...e, pins: (e.pins ?? []).map((p) => p.id === pinId ? { ...p, ...updates } : p) }
+              : e
+          ),
+        }));
+      },
+
+      deletePin: (entryId: string, pinId: string) => {
+        set((state) => ({
+          entries: state.entries.map((e) =>
+            e.id === entryId
+              ? { ...e, pins: (e.pins ?? []).filter((p) => p.id !== pinId) }
+              : e
+          ),
+        }));
       },
 
       addEVPRecording: (rec: EVPRecording) =>

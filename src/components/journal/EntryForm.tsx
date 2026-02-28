@@ -19,6 +19,7 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import {
   ChevronDown,
   ChevronUp,
@@ -31,6 +32,7 @@ import {
   Image as ImageIcon,
   CheckCircle,
   PenLine,
+  Navigation,
 } from 'lucide-react-native';
 import { JournalCategory, JournalEntry, useJournalStore } from './JournalStore';
 import { uploadImageFromUri } from '@/utils/uploadImage';
@@ -78,6 +80,9 @@ export function EntryForm({ category, activityTypes }: EntryFormProps) {
   const [localImageUri, setLocalImageUri] = useState<string | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [latitude, setLatitude] = useState<number | undefined>(undefined);
+  const [longitude, setLongitude] = useState<number | undefined>(undefined);
+  const [locating, setLocating] = useState(false);
 
   // Animate the chevron rotation
   const rotation = useSharedValue(0);
@@ -108,6 +113,8 @@ export function EntryForm({ category, activityTypes }: EntryFormProps) {
     setLocalImageUri(null);
     setUploadedImageUrl(null);
     setIsUploading(false);
+    setLatitude(undefined);
+    setLongitude(undefined);
   };
 
   const handlePickImage = async () => {
@@ -154,6 +161,25 @@ export function EntryForm({ category, activityTypes }: EntryFormProps) {
     }
   };
 
+  const handleLocate = async () => {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Location access is needed to pin your position.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setLatitude(loc.coords.latitude);
+      setLongitude(loc.coords.longitude);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert('Location Error', 'Could not get current location.');
+    } finally {
+      setLocating(false);
+    }
+  };
+
   const handleSave = () => {
     if (isUploading) return;
     const entry: JournalEntry = {
@@ -170,6 +196,8 @@ export function EntryForm({ category, activityTypes }: EntryFormProps) {
       notes,
       imageUrl: uploadedImageUrl ?? undefined,
       createdAt: new Date().toISOString(),
+      latitude,
+      longitude,
     };
     addEntry(entry);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -242,17 +270,31 @@ export function EntryForm({ category, activityTypes }: EntryFormProps) {
           {/* Location */}
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>LOCATION</Text>
-            <View style={styles.inputBox}>
-              <MapPin size={12} color="#9a7c4e" />
-              <TextInput
-                style={styles.input}
-                value={location}
-                onChangeText={setLocation}
-                placeholder="Enter location..."
-                placeholderTextColor="#b09060"
-                testID="entry-location-input"
-              />
+            <View style={styles.locationRow}>
+              <View style={[styles.inputBox, { flex: 1 }]}>
+                <MapPin size={12} color="#9a7c4e" />
+                <TextInput
+                  style={styles.input}
+                  value={location}
+                  onChangeText={setLocation}
+                  placeholder="Enter location..."
+                  placeholderTextColor="#b09060"
+                  testID="entry-location-input"
+                />
+              </View>
+              <Pressable
+                style={[styles.gpsBtn, latitude !== undefined && styles.gpsBtnActive]}
+                onPress={handleLocate}
+                disabled={locating}
+              >
+                <Navigation size={14} color={latitude !== undefined ? '#4caf50' : '#7a5c2e'} />
+              </Pressable>
             </View>
+            {latitude !== undefined ? (
+              <Text style={styles.coordsHint}>
+                GPS: {latitude.toFixed(5)}, {longitude?.toFixed(5)}
+              </Text>
+            ) : null}
           </View>
 
           {/* Activity Type — 2 rows of 5 */}
@@ -643,5 +685,30 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#f5e4bb',
     letterSpacing: 3,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  gpsBtn: {
+    padding: 10,
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(139,90,0,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gpsBtnActive: {
+    backgroundColor: 'rgba(76,175,80,0.12)',
+    borderColor: 'rgba(76,175,80,0.4)',
+  },
+  coordsHint: {
+    fontSize: 9,
+    color: '#4caf50',
+    marginTop: 4,
+    fontStyle: 'italic',
+    letterSpacing: 0.3,
   },
 });

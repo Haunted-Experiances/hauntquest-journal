@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { JournalEntry, useJournalStore } from './JournalStore';
 import { uploadImageFromUri } from '@/utils/uploadImage';
+import { EntryMapView } from './EntryMapView';
 
 interface EntryCardProps {
   entry: JournalEntry;
@@ -174,6 +175,13 @@ export function EntryCard({ entry, index, onDelete, activityTypes }: EntryCardPr
                     <Image source={{ uri: entry.imageUrl }} style={styles.evidencePhoto} resizeMode="cover" />
                   </View>
                 ) : null}
+
+                <EntryMapView
+                  entryId={entry.id}
+                  pins={entry.pins ?? []}
+                  initialLatitude={entry.latitude}
+                  initialLongitude={entry.longitude}
+                />
 
                 {/* Edit / Delete row */}
                 <View style={styles.actionRow}>
