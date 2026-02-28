@@ -183,7 +183,7 @@ function buildLeafletHTML(
     var map = L.map('map', {
       zoomControl: true,
       attributionControl: false,
-    }).setView([centerLat, centerLng], 14);
+    }).setView([centerLat, centerLng], 6);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -243,14 +243,14 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
 
-  const centerLat = initialLatitude ?? 40.7128;
-  const centerLng = initialLongitude ?? -74.006;
+  const centerLat = initialLatitude ?? 54.5;
+  const centerLng = initialLongitude ?? -3.5;
 
   const defaultRegion = {
     latitude: centerLat,
     longitude: centerLng,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
+    latitudeDelta: 8,
+    longitudeDelta: 8,
   };
 
   const goToCurrentLocation = useCallback(async () => {
