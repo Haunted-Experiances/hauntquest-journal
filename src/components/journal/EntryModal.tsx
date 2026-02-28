@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -66,7 +66,6 @@ async function uploadImageToBackend(uri: string, filename: string, mimeType: str
 
 export function EntryModal({ visible, category, activityTypes, onClose }: EntryModalProps) {
   const addEntry = useJournalStore((s) => s.addEntry);
-  const bottomSheetRef = useRef<BottomSheet>(null);
 
   const [date, setDate] = useState(getTodayDate());
   const [time, setTime] = useState(getCurrentTime());
@@ -209,7 +208,7 @@ export function EntryModal({ visible, category, activityTypes, onClose }: EntryM
 
   return (
     <BottomSheet
-      ref={bottomSheetRef}
+
       index={0}
       snapPoints={snapPoints}
       onClose={onClose}
