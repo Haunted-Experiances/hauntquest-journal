@@ -5,7 +5,6 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  ScrollView,
   Image,
   ActivityIndicator,
   Alert,
@@ -286,29 +285,27 @@ export function EntryModal({ visible, category, activityTypes, onClose }: EntryM
           {/* Activity Type */}
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>ACTIVITY TYPE</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
-              <View style={styles.typeRow}>
-                {activityTypes.map((type) => (
-                  <Pressable
-                    key={type}
+            <View style={styles.typeGrid}>
+              {activityTypes.map((type) => (
+                <Pressable
+                  key={type}
+                  style={[
+                    styles.typeChip,
+                    activityType === type && styles.typeChipActive,
+                  ]}
+                  onPress={() => setActivityType(type)}
+                >
+                  <Text
                     style={[
-                      styles.typeChip,
-                      activityType === type && styles.typeChipActive,
+                      styles.typeChipText,
+                      activityType === type && styles.typeChipTextActive,
                     ]}
-                    onPress={() => setActivityType(type)}
                   >
-                    <Text
-                      style={[
-                        styles.typeChipText,
-                        activityType === type && styles.typeChipTextActive,
-                      ]}
-                    >
-                      {type}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </ScrollView>
+                    {type}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
 
           {/* Description */}
@@ -548,8 +545,9 @@ const styles = StyleSheet.create({
     minHeight: 80,
     paddingTop: 10,
   },
-  typeRow: {
+  typeGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     paddingVertical: 4,
   },
