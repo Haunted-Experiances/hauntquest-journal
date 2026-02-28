@@ -1,15 +1,14 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
-  Pressable,
   StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Plus, BookOpen } from 'lucide-react-native';
+import { BookOpen } from 'lucide-react-native';
 import {
   useFonts as useCinzelFonts,
   Cinzel_700Bold,
@@ -24,7 +23,7 @@ import * as SplashScreen from 'expo-splash-screen';
 
 import { JournalCategory, JournalEntry, useJournalStore } from './JournalStore';
 import { EntryCard } from './EntryCard';
-import { EntryModal } from './EntryModal';
+import { EntryForm } from './EntryForm';
 import { CSVExport } from './CSVExport';
 
 interface JournalTabProps {
@@ -44,8 +43,6 @@ export function JournalTab({
   folderImage,
   activityTypes,
 }: JournalTabProps) {
-  const [modalVisible, setModalVisible] = useState(false);
-
   const [cinzelLoaded] = useCinzelFonts({ Cinzel_700Bold, Cinzel_900Black });
   const [garamondLoaded] = useGaramondFonts({ EBGaramond_400Regular, EBGaramond_700Bold });
 
@@ -89,17 +86,13 @@ export function JournalTab({
           end={{ x: 1, y: 1 }}
           style={styles.folder}
         >
-          {/* Folder tab */}
           <View style={[styles.folderTab, { backgroundColor: folderColor }]} />
-
-          {/* Folder inner shadow */}
           <LinearGradient
             colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.15)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
-
           <Text style={styles.folderEmoji}>{folderImage}</Text>
           <Text style={[styles.folderTitle, { fontFamily: titleFont }]}>{title.toUpperCase()}</Text>
           <Text style={[styles.folderSubtitle, { fontFamily: bodyFont }]}>
@@ -130,6 +123,15 @@ export function JournalTab({
     </View>
   );
 
+  const ListFooter = () => (
+    <View style={styles.footer}>
+      <EntryForm category={category} activityTypes={activityTypes} />
+      <View style={styles.csvRow}>
+        <CSVExport category={category} categoryTitle={title} />
+      </View>
+    </View>
+  );
+
   return (
     <LinearGradient
       colors={['#0a0005', '#1a0a1e', '#0f0812', '#120008']}
@@ -147,7 +149,7 @@ export function JournalTab({
         pointerEvents="none"
       />
 
-      {/* Haunted house silhouette suggestion */}
+      {/* Haunted house silhouette */}
       <View style={styles.houseContainer} pointerEvents="none">
         <View style={styles.houseTower} />
         <View style={styles.houseBody} />
@@ -163,43 +165,13 @@ export function JournalTab({
           renderItem={renderEntry}
           ListHeaderComponent={<ListHeader />}
           ListEmptyComponent={<ListEmpty />}
+          ListFooterComponent={<ListFooter />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           testID="entries-list"
         />
-
-        {/* Bottom action bar */}
-        <View style={styles.actionBar}>
-          <CSVExport category={category} categoryTitle={title} />
-
-          <Pressable
-            onPress={() => setModalVisible(true)}
-            style={({ pressed }) => [styles.newEntryButton, pressed && styles.newEntryButtonPressed]}
-            testID="new-entry-button"
-          >
-            <LinearGradient
-              colors={['#6b0000', '#8b1a00', '#5c0808']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.newEntryGradient}
-            >
-              <Plus size={18} color="#f5e4bb" />
-              <Text style={[styles.newEntryText, { fontFamily: bodyBoldFont }]}>
-                NEW ENTRY
-              </Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
       </SafeAreaView>
-
-      {modalVisible ? (
-        <EntryModal
-          visible={modalVisible}
-          category={category}
-          activityTypes={activityTypes}
-          onClose={() => setModalVisible(false)}
-        />
-      ) : null}
     </LinearGradient>
   );
 }
@@ -211,7 +183,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  // Haunted house silhouette
   houseContainer: {
     position: 'absolute',
     top: 0,
@@ -267,7 +238,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#d0c0e0',
     borderRadius: 2,
   },
-  // App title
   appTitleContainer: {
     alignItems: 'center',
     paddingTop: 20,
@@ -290,7 +260,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 12,
   },
-  // Folder
   folderContainer: {
     marginHorizontal: 20,
     marginBottom: 20,
@@ -339,7 +308,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     fontStyle: 'italic',
   },
-  // Section header
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -357,10 +325,9 @@ const styles = StyleSheet.create({
     color: '#9a7c4e',
     letterSpacing: 2,
   },
-  // Empty state
   emptyContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 32,
     paddingHorizontal: 32,
   },
   emptyEmoji: {
@@ -381,50 +348,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontStyle: 'italic',
   },
-  // List
   listContent: {
-    paddingBottom: 100,
+    paddingBottom: 40,
   },
-  // Action bar
-  actionBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingBottom: 16,
-    backgroundColor: 'rgba(10, 0, 5, 0.92)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(107, 79, 122, 0.3)',
+  footer: {
+    paddingTop: 8,
   },
-  newEntryButton: {
-    borderRadius: 10,
-    overflow: 'hidden',
-    shadowColor: '#8b0000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  newEntryButtonPressed: {
-    opacity: 0.8,
-  },
-  newEntryGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  newEntryText: {
-    fontSize: 13,
-    color: '#f5e4bb',
-    fontWeight: '700',
-    letterSpacing: 2,
+  csvRow: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 8,
   },
 });
