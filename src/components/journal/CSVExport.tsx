@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, Text, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { Pressable, Text, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Download } from 'lucide-react-native';
@@ -21,26 +21,38 @@ export function CSVExport({ category, categoryTitle }: CSVExportProps) {
 
       if (!csv || csv.trim() === '') {
         Alert.alert('No Entries', 'There are no entries to export for this category.');
-        setLoading(false);
         return;
       }
 
       const fileName = `haunted-journal-${category}-${Date.now()}.csv`;
-      const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
-      await FileSystem.writeAsStringAsync(fileUri, csv, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'text/csv',
-          dialogTitle: `Export ${categoryTitle} Journal`,
-          UTI: 'public.comma-separated-values-text',
-        });
+      if (Platform.OS === 'web') {
+        // Web: trigger a browser file download
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       } else {
-        Alert.alert('Sharing Not Available', 'Sharing is not available on this device.');
+        // Native: write to cache then share
+        const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+        await FileSystem.writeAsStringAsync(fileUri, csv, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: `Export ${categoryTitle} Journal`,
+            UTI: 'public.comma-separated-values-text',
+          });
+        } else {
+          Alert.alert('Sharing Not Available', 'Sharing is not available on this device.');
+        }
       }
     } catch (err) {
       Alert.alert('Export Failed', 'Could not export the journal entries. Please try again.');
