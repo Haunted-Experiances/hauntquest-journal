@@ -57,10 +57,9 @@ export function JournalTab({
     }
   }, [fontsLoaded]);
 
-  const entries = useJournalStore((s) =>
-    s.entries.filter((e) => e.category === category)
-  );
+  const allEntries = useJournalStore((s) => s.entries);
   const deleteEntry = useJournalStore((s) => s.deleteEntry);
+  const entries = allEntries.filter((e) => e.category === category);
 
   const titleFont = fontsLoaded ? 'Cinzel_900Black' : undefined;
   const bodyFont = fontsLoaded ? 'EBGaramond_400Regular' : undefined;
