@@ -10,11 +10,23 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
-import MapView, { Marker, MapPressEvent, Region } from 'react-native-maps';
-import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Navigation, Map } from 'lucide-react-native';
 import { MapPin, useJournalStore } from './JournalStore';
+
+// react-native-maps only works on native (iOS/Android), not web
+const isNative = Platform.OS !== 'web';
+let MapView: any = null;
+let Marker: any = null;
+if (isNative) {
+  const maps = require('react-native-maps');
+  MapView = maps.default;
+  Marker = maps.Marker;
+}
+let Location: any = null;
+if (isNative) {
+  Location = require('expo-location');
+}
 
 const PIN_COLORS = [
   { value: '#e53935', label: 'Red' },
@@ -110,13 +122,13 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   const updatePin = useJournalStore((s) => s.updatePin);
   const deletePin = useJournalStore((s) => s.deletePin);
 
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<any>(null);
   const [addingPin, setAddingPin] = useState(false);
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
   const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
 
-  const defaultRegion: Region = {
+  const defaultRegion = {
     latitude: initialLatitude ?? 40.7128,
     longitude: initialLongitude ?? -74.006,
     latitudeDelta: 0.01,
@@ -145,7 +157,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
     }
   }, []);
 
-  const handleMapPress = useCallback((e: MapPressEvent) => {
+  const handleMapPress = useCallback((e: any) => {
     if (!addingPin) return;
     const coords = e.nativeEvent.coordinate;
     setNewPinCoords(coords);
@@ -204,6 +216,15 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   }, [entryId, deletePin]);
 
   const isNewPin = editingPin?.id === '__new__';
+
+  if (!isNative) {
+    return (
+      <View style={styles.webFallback}>
+        <Map size={16} color="#9a7c4e" />
+        <Text style={styles.webFallbackText}>Map available on iOS & Android</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -381,6 +402,23 @@ const styles = StyleSheet.create({
   pinCoords: { fontSize: 9, color: '#9a7c4e', marginTop: 1, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
   pinEditBtn: { padding: 6 },
   pinDeleteBtn: { padding: 6 },
+  webFallback: {
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(139,90,0,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  webFallbackText: {
+    fontSize: 11,
+    color: '#9a7c4e',
+    fontStyle: 'italic',
+  },
 });
 
 const editModalStyles = StyleSheet.create({
