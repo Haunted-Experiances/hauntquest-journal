@@ -1,121 +1,206 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   Pressable,
   StyleSheet,
-  Alert,
   TextInput,
   Modal,
   ScrollView,
   Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Navigation, Map } from 'lucide-react-native';
+import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Map, Navigation } from 'lucide-react-native';
 import { MapPin, useJournalStore } from './JournalStore';
 
-// react-native-maps only works on native (iOS/Android), not web
+// ─── Platform guards ─────────────────────────────────────────────────────────
 const isNative = Platform.OS !== 'web';
+
 let MapView: any = null;
 let Marker: any = null;
+let Callout: any = null;
 if (isNative) {
   const maps = require('react-native-maps');
   MapView = maps.default;
   Marker = maps.Marker;
+  Callout = maps.Callout;
 }
+
 let Location: any = null;
 if (isNative) {
   Location = require('expo-location');
 }
 
-// WebView — works on native, but on web we use a raw iframe instead
-let WebView: any = null;
-if (isNative) {
-  try {
-    WebView = require('react-native-webview').WebView;
-  } catch {
-    WebView = null;
-  }
+// ─── Pin Types ────────────────────────────────────────────────────────────────
+interface PinType {
+  name: string;
+  color: string;
+  emoji: string;
 }
 
-const PIN_COLORS = [
-  { value: '#e53935', label: 'Red' },
-  { value: '#8e24aa', label: 'Purple' },
-  { value: '#1e88e5', label: 'Blue' },
-  { value: '#43a047', label: 'Green' },
-  { value: '#fb8c00', label: 'Orange' },
-  { value: '#fdd835', label: 'Yellow' },
-  { value: '#00acc1', label: 'Cyan' },
-  { value: '#f06292', label: 'Pink' },
+const PIN_TYPES: PinType[] = [
+  { name: 'Haunting',        color: '#8b0000', emoji: '👻' },
+  { name: 'EVP Detected',    color: '#1a237e', emoji: '🎙️' },
+  { name: 'EMF Spike',       color: '#1b5e20', emoji: '⚡' },
+  { name: 'Apparition',      color: '#4a148c', emoji: '👁️' },
+  { name: 'Cold Spot',       color: '#006064', emoji: '❄️' },
+  { name: 'Object Movement', color: '#e65100', emoji: '💀' },
 ];
 
-interface CategoryMapViewProps {
-  category: string;
+function getPinType(pin: MapPin): PinType {
+  // Match by color first
+  const match = PIN_TYPES.find((pt) => pt.color === pin.color);
+  return match ?? PIN_TYPES[0];
 }
 
-interface PinEditModalProps {
+function getPinNote(pin: MapPin): string {
+  // Label is stored as "TypeName: note" or just "TypeName"
+  const colonIdx = pin.label.indexOf(': ');
+  if (colonIdx !== -1) return pin.label.slice(colonIdx + 2);
+  return '';
+}
+
+// ─── Leaflet HTML builder ─────────────────────────────────────────────────────
+function buildLeafletHTML(
+  pins: MapPin[],
+  centerLat: number,
+  centerLng: number,
+  addingPin: boolean,
+  selectedPinType: PinType | null,
+): string {
+  const pinsJson = JSON.stringify(
+    pins.map((p) => {
+      const pt = getPinType(p);
+      return {
+        id: p.id,
+        lat: p.latitude,
+        lng: p.longitude,
+        label: p.label,
+        color: p.color,
+        emoji: pt.emoji,
+      };
+    }),
+  );
+
+  const canTap = addingPin && selectedPinType !== null;
+  const cursorStyle = canTap ? 'crosshair' : 'grab';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; background:#e8dfc8; }
+#map { width:100%; height:100%; cursor:${cursorStyle}; }
+.custom-marker {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:36px;
+  height:36px;
+  border-radius:50% 50% 50% 0;
+  transform:rotate(-45deg);
+  border:2px solid rgba(0,0,0,0.35);
+  font-size:15px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.4);
+}
+.custom-marker-inner {
+  transform:rotate(45deg);
+  line-height:1;
+}
+.pin-tooltip {
+  background:#f5e6c8 !important;
+  border:1.5px solid #7a5c2e !important;
+  border-radius:4px !important;
+  padding:2px 6px !important;
+  font-size:11px !important;
+  font-family:Georgia,serif !important;
+  font-weight:700 !important;
+  color:#3d2600 !important;
+  white-space:nowrap !important;
+  box-shadow:none !important;
+}
+.pin-tooltip::before { display:none !important; }
+.leaflet-tooltip-left::before, .leaflet-tooltip-right::before { display:none !important; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  var centerLat=${centerLat};
+  var centerLng=${centerLng};
+  var canTap=${canTap ? 'true' : 'false'};
+  var pins=${pinsJson};
+
+  var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([centerLat,centerLng],6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+
+  function makeIcon(color,emoji){
+    var html='<div class="custom-marker" style="background:'+color+'"><span class="custom-marker-inner">'+emoji+'</span></div>';
+    return L.divIcon({
+      html:html,
+      className:'',
+      iconSize:[36,36],
+      iconAnchor:[18,36],
+      popupAnchor:[0,-38],
+    });
+  }
+
+  pins.forEach(function(pin){
+    var marker=L.marker([pin.lat,pin.lng],{icon:makeIcon(pin.color,pin.emoji)}).addTo(map);
+    if(pin.label){
+      marker.bindTooltip(pin.label,{
+        permanent:true,
+        direction:'top',
+        className:'pin-tooltip',
+        offset:[0,-4],
+      });
+    }
+  });
+
+  if(canTap){ map.getContainer().style.cursor='crosshair'; }
+
+  map.on('click',function(e){
+    if(!canTap) return;
+    var msg=JSON.stringify({type:'MAP_TAP',lat:e.latlng.lat,lng:e.latlng.lng});
+    window.parent.postMessage(msg,'*');
+  });
+})();
+</script>
+</body>
+</html>`;
+}
+
+// ─── Delete confirm modal ─────────────────────────────────────────────────────
+interface DeleteConfirmModalProps {
   visible: boolean;
-  pin: MapPin | null;
-  onSave: (label: string, color: string) => void;
+  pinLabel: string;
+  onConfirm: () => void;
   onCancel: () => void;
 }
 
-function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
-  const [label, setLabel] = useState(pin?.label ?? '');
-  const [color, setColor] = useState(pin?.color ?? PIN_COLORS[0].value);
-
-  React.useEffect(() => {
-    if (pin) {
-      setLabel(pin.label);
-      setColor(pin.color);
-    }
-  }, [pin]);
-
+function DeleteConfirmModal({ visible, pinLabel, onConfirm, onCancel }: DeleteConfirmModalProps) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable style={editModalStyles.backdrop} onPress={onCancel}>
-        <Pressable style={editModalStyles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={editModalStyles.title}>EDIT PIN</Text>
-
-          <Text style={editModalStyles.label}>LABEL</Text>
-          <View style={editModalStyles.inputBox}>
-            <MapPinIcon size={13} color="#9a7c4e" />
-            <TextInput
-              style={editModalStyles.input}
-              value={label}
-              onChangeText={setLabel}
-              placeholder="Pin label..."
-              placeholderTextColor="#b09060"
-              maxLength={40}
-            />
-          </View>
-
-          <Text style={editModalStyles.label}>COLOR</Text>
-          <View style={editModalStyles.colorGrid}>
-            {PIN_COLORS.map((c) => (
-              <Pressable
-                key={c.value}
-                style={[
-                  editModalStyles.colorSwatch,
-                  { backgroundColor: c.value },
-                  color === c.value && editModalStyles.colorSwatchActive,
-                ]}
-                onPress={() => setColor(c.value)}
-              />
-            ))}
-          </View>
-
-          <View style={editModalStyles.actionRow}>
-            <Pressable style={editModalStyles.cancelBtn} onPress={onCancel}>
+      <Pressable style={modalStyles.backdrop} onPress={onCancel}>
+        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+          <Text style={modalStyles.title}>REMOVE PIN</Text>
+          <Text style={modalStyles.deleteMsg}>
+            Remove <Text style={modalStyles.deleteMsgBold}>{pinLabel}</Text> from the investigation map?
+          </Text>
+          <View style={modalStyles.actionRow}>
+            <Pressable style={modalStyles.cancelBtn} onPress={onCancel} testID="delete-cancel-button">
               <X size={14} color="#7a5c2e" />
-              <Text style={editModalStyles.cancelText}>Cancel</Text>
+              <Text style={modalStyles.cancelText}>Cancel</Text>
             </Pressable>
-            <Pressable
-              style={editModalStyles.saveBtn}
-              onPress={() => onSave(label || 'Pin', color)}
-            >
-              <Check size={14} color="#f5e4bb" />
-              <Text style={editModalStyles.saveText}>Save</Text>
+            <Pressable style={modalStyles.deleteBtn} onPress={onConfirm} testID="delete-confirm-button">
+              <Trash2 size={14} color="#f5e4bb" />
+              <Text style={modalStyles.deleteBtnText}>Remove</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -124,115 +209,139 @@ function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
   );
 }
 
-function buildLeafletHTML(
-  pins: MapPin[],
-  centerLat: number,
-  centerLng: number,
-  addingPin: boolean,
-): string {
-  const pinsJson = JSON.stringify(
-    pins.map((p) => ({
-      id: p.id,
-      lat: p.latitude,
-      lng: p.longitude,
-      label: p.label,
-      color: p.color,
-    })),
-  );
-
-  const cursorStyle = addingPin ? 'crosshair' : 'grab';
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; background: #e8dfc8; }
-  #map { width: 100%; height: 100%; cursor: ${cursorStyle}; }
-  .custom-pin-label {
-    background: white;
-    border: 2px solid #7a5c2e;
-    border-radius: 4px;
-    padding: 2px 5px;
-    font-size: 11px;
-    font-family: Georgia, serif;
-    font-weight: 700;
-    color: #3d2600;
-    white-space: nowrap;
-    margin-top: -2px;
-  }
-  .adding-mode .leaflet-container {
-    cursor: crosshair !important;
-  }
-</style>
-</head>
-<body>
-<div id="map"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-  (function() {
-    var centerLat = ${centerLat};
-    var centerLng = ${centerLng};
-    var addingPin = ${addingPin ? 'true' : 'false'};
-    var pins = ${pinsJson};
-
-    var map = L.map('map', {
-      zoomControl: true,
-      attributionControl: false,
-    }).setView([centerLat, centerLng], 6);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-    }).addTo(map);
-
-    function makeIcon(color) {
-      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="24" height="36">'
-        + '<path d="M12 0C7.6 0 4 3.6 4 8c0 5.4 8 18 8 18s8-12.6 8-18c0-4.4-3.6-8-8-8z" fill="' + color + '" stroke="#fff" stroke-width="1.5"/>'
-        + '<circle cx="12" cy="8" r="3" fill="#fff" opacity="0.85"/>'
-        + '</svg>';
-      return L.divIcon({
-        html: svg,
-        className: '',
-        iconSize: [24, 36],
-        iconAnchor: [12, 36],
-        popupAnchor: [0, -36],
-      });
-    }
-
-    pins.forEach(function(pin) {
-      var marker = L.marker([pin.lat, pin.lng], { icon: makeIcon(pin.color) }).addTo(map);
-      if (pin.label) {
-        marker.bindTooltip(pin.label, {
-          permanent: true,
-          direction: 'top',
-          className: 'custom-pin-label',
-          offset: [0, -4],
-        });
-      }
-    });
-
-    if (addingPin) {
-      map.getContainer().style.cursor = 'crosshair';
-    }
-
-    map.on('click', function(e) {
-      if (!addingPin) return;
-      var msg = JSON.stringify({ type: 'MAP_TAP', lat: e.latlng.lat, lng: e.latlng.lng });
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(msg);
-      } else {
-        window.parent.postMessage(msg, '*');
-      }
-    });
-  })();
-</script>
-</body>
-</html>`;
+// ─── Edit label modal ─────────────────────────────────────────────────────────
+interface EditLabelModalProps {
+  visible: boolean;
+  pin: MapPin | null;
+  onSave: (note: string) => void;
+  onCancel: () => void;
 }
 
+function EditLabelModal({ visible, pin, onSave, onCancel }: EditLabelModalProps) {
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    if (pin) setNote(getPinNote(pin));
+  }, [pin]);
+
+  if (!pin) return null;
+  const pt = getPinType(pin);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <Pressable style={modalStyles.backdrop} onPress={onCancel}>
+        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+          <Text style={modalStyles.title}>EDIT PIN NOTE</Text>
+
+          {/* Type badge — read-only */}
+          <View style={[modalStyles.typeBadge, { borderColor: pt.color }]}>
+            <Text style={modalStyles.typeBadgeEmoji}>{pt.emoji}</Text>
+            <Text style={[modalStyles.typeBadgeName, { color: pt.color }]}>{pt.name}</Text>
+          </View>
+
+          <Text style={modalStyles.fieldLabel}>NOTE (optional)</Text>
+          <View style={modalStyles.inputBox}>
+            <MapPinIcon size={13} color="#9a7c4e" />
+            <TextInput
+              style={modalStyles.input}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Add a note..."
+              placeholderTextColor="#b09060"
+              maxLength={60}
+              testID="pin-note-input"
+            />
+          </View>
+
+          <View style={modalStyles.actionRow}>
+            <Pressable style={modalStyles.cancelBtn} onPress={onCancel} testID="edit-cancel-button">
+              <X size={14} color="#7a5c2e" />
+              <Text style={modalStyles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={modalStyles.saveBtn}
+              onPress={() => onSave(note)}
+              testID="edit-save-button"
+            >
+              <Check size={14} color="#f5e4bb" />
+              <Text style={modalStyles.saveBtnText}>Save</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ─── New pin note modal ───────────────────────────────────────────────────────
+interface NewPinModalProps {
+  visible: boolean;
+  pinType: PinType | null;
+  onSave: (note: string) => void;
+  onCancel: () => void;
+}
+
+function NewPinModal({ visible, pinType, onSave, onCancel }: NewPinModalProps) {
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    if (visible) setNote('');
+  }, [visible]);
+
+  if (!pinType) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <Pressable style={modalStyles.backdrop} onPress={onCancel}>
+        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+          <Text style={modalStyles.title}>STICK PIN</Text>
+
+          <View style={[modalStyles.typeBadge, { borderColor: pinType.color }]}>
+            <Text style={modalStyles.typeBadgeEmoji}>{pinType.emoji}</Text>
+            <Text style={[modalStyles.typeBadgeName, { color: pinType.color }]}>{pinType.name}</Text>
+          </View>
+
+          <Text style={modalStyles.fieldLabel}>NOTE (optional)</Text>
+          <View style={modalStyles.inputBox}>
+            <MapPinIcon size={13} color="#9a7c4e" />
+            <TextInput
+              style={modalStyles.input}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Describe what happened here..."
+              placeholderTextColor="#b09060"
+              maxLength={60}
+              autoFocus
+              testID="new-pin-note-input"
+            />
+          </View>
+
+          <View style={modalStyles.actionRow}>
+            <Pressable style={modalStyles.cancelBtn} onPress={onCancel} testID="new-pin-cancel-button">
+              <X size={14} color="#7a5c2e" />
+              <Text style={modalStyles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[modalStyles.saveBtn, { backgroundColor: pinType.color }]}
+              onPress={() => onSave(note)}
+              testID="new-pin-save-button"
+            >
+              <Check size={14} color="#f5e4bb" />
+              <Text style={modalStyles.saveBtnText}>Stick Pin</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ─── Props ────────────────────────────────────────────────────────────────────
+interface CategoryMapViewProps {
+  category: string;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export function CategoryMapView({ category }: CategoryMapViewProps) {
   const categoryMaps = useJournalStore((s) => s.categoryMaps);
   const addCategoryPin = useJournalStore((s) => s.addCategoryPin);
@@ -242,357 +351,405 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
   const pins: MapPin[] = categoryMaps[category] ?? [];
 
   const mapRef = useRef<any>(null);
+  const addingPinRef = useRef(false);
+  const selectedPinTypeRef = useRef<PinType | null>(null);
+
   const [addingPin, setAddingPin] = useState(false);
+  const [selectedPinType, setSelectedPinType] = useState<PinType | null>(null);
+  const [pendingCoords, setPendingCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [showNewPinModal, setShowNewPinModal] = useState(false);
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
-  const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [deletingPin, setDeletingPin] = useState<MapPin | null>(null);
   const [locating, setLocating] = useState(false);
-  const addingPinRef = useRef(addingPin);
+
+  // Keep refs in sync for closure-safe access
   addingPinRef.current = addingPin;
+  selectedPinTypeRef.current = selectedPinType;
 
   const centerLat = 54.5;
   const centerLng = -3.5;
 
-  const defaultRegion = {
-    latitude: centerLat,
-    longitude: centerLng,
-    latitudeDelta: 8,
-    longitudeDelta: 8,
-  };
-
-  const goToCurrentLocation = useCallback(async () => {
-    setLocating(true);
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Location access is needed to center the map.');
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      mapRef.current?.animateToRegion({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      }, 600);
-    } catch {
-      Alert.alert('Location Error', 'Could not get current location.');
-    } finally {
-      setLocating(false);
-    }
+  const handleStartAdding = useCallback(() => {
+    setAddingPin(true);
+    setSelectedPinType(null);
   }, []);
 
-  const handleMapPress = useCallback((e: any) => {
-    if (!addingPin) return;
-    const coords = e.nativeEvent.coordinate;
-    setNewPinCoords(coords);
-    setEditingPin({
-      id: '__new__',
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-      label: '',
-      color: PIN_COLORS[0].value,
-      createdAt: new Date().toISOString(),
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [addingPin]);
-
-  const handleWebViewMessage = useCallback((event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'MAP_TAP' && addingPin) {
-        const coords = { latitude: data.lat, longitude: data.lng };
-        setNewPinCoords(coords);
-        setEditingPin({
-          id: '__new__',
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          label: '',
-          color: PIN_COLORS[0].value,
-          createdAt: new Date().toISOString(),
-        });
-        if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        }
-      }
-    } catch {
-      // ignore malformed messages
-    }
-  }, [addingPin]);
-
-  const handleSaveNewPin = useCallback((label: string, color: string) => {
-    if (!newPinCoords) return;
-    const pin: MapPin = {
-      id: `pin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      latitude: newPinCoords.latitude,
-      longitude: newPinCoords.longitude,
-      label,
-      color,
-      createdAt: new Date().toISOString(),
-    };
-    addCategoryPin(category, pin);
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    setEditingPin(null);
-    setNewPinCoords(null);
+  const handleDoneAdding = useCallback(() => {
     setAddingPin(false);
-  }, [newPinCoords, category, addCategoryPin]);
-
-  const handleEditPin = useCallback((pin: MapPin) => {
-    setNewPinCoords(null);
-    setEditingPin(pin);
+    setSelectedPinType(null);
+    setPendingCoords(null);
   }, []);
 
-  const handleSaveEditPin = useCallback((label: string, color: string) => {
-    if (!editingPin || editingPin.id === '__new__') return;
-    updateCategoryPin(category, editingPin.id, { label, color });
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const handleMapTap = useCallback((lat: number, lng: number) => {
+    const pt = selectedPinTypeRef.current;
+    if (!addingPinRef.current || !pt) return;
+    setPendingCoords({ latitude: lat, longitude: lng });
+    setShowNewPinModal(true);
+    if (isNative) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    setEditingPin(null);
-  }, [editingPin, category, updateCategoryPin]);
+  }, []);
 
-  const handleDeletePin = useCallback((pinId: string) => {
-    Alert.alert('Delete Pin', 'Remove this pin from the map?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          deleteCategoryPin(category, pinId);
-          if (Platform.OS !== 'web') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }
-        },
-      },
-    ]);
-  }, [category, deleteCategoryPin]);
-
-  const isNewPin = editingPin?.id === '__new__';
-
-  // On web, listen for postMessage from the iframe
-  React.useEffect(() => {
+  // Web: listen for postMessage from srcdoc iframe
+  useEffect(() => {
     if (isNative) return;
     const handler = (ev: MessageEvent) => {
       try {
-        const data = JSON.parse(ev.data);
-        if (data.type === 'MAP_TAP' && addingPinRef.current) {
-          const coords = { latitude: data.lat, longitude: data.lng };
-          setNewPinCoords(coords);
-          setEditingPin({
-            id: '__new__',
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            label: '',
-            color: PIN_COLORS[0].value,
-            createdAt: new Date().toISOString(),
-          });
+        const data = JSON.parse(ev.data as string);
+        if (data.type === 'MAP_TAP') {
+          handleMapTap(data.lat, data.lng);
         }
       } catch { /* ignore */ }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
+  }, [handleMapTap]);
+
+  const handleSaveNewPin = useCallback((note: string) => {
+    if (!pendingCoords || !selectedPinType) return;
+    const label = note.trim()
+      ? `${selectedPinType.name}: ${note.trim()}`
+      : selectedPinType.name;
+    const pin: MapPin = {
+      id: `pin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      latitude: pendingCoords.latitude,
+      longitude: pendingCoords.longitude,
+      label,
+      color: selectedPinType.color,
+      createdAt: new Date().toISOString(),
+    };
+    addCategoryPin(category, pin);
+    if (isNative) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setShowNewPinModal(false);
+    setPendingCoords(null);
+    setAddingPin(false);
+    setSelectedPinType(null);
+  }, [pendingCoords, selectedPinType, category, addCategoryPin]);
+
+  const handleSaveEditPin = useCallback((note: string) => {
+    if (!editingPin) return;
+    const pt = getPinType(editingPin);
+    const newLabel = note.trim() ? `${pt.name}: ${note.trim()}` : pt.name;
+    updateCategoryPin(category, editingPin.id, { label: newLabel });
+    if (isNative) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setEditingPin(null);
+  }, [editingPin, category, updateCategoryPin]);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (!deletingPin) return;
+    deleteCategoryPin(category, deletingPin.id);
+    if (isNative) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setDeletingPin(null);
+  }, [deletingPin, category, deleteCategoryPin]);
+
+  const goToCurrentLocation = useCallback(async () => {
+    if (!isNative || !Location) return;
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      mapRef.current?.animateToRegion({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }, 600);
+    } catch { /* ignore */ } finally {
+      setLocating(false);
+    }
   }, []);
 
-  // ─── WEB: Leaflet via iframe ─────────────────────────────────────────────────
+  // ─── Shared sub-components ─────────────────────────────────────────────────
+
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <View style={styles.headerLeft}>
+        <Map size={13} color="#7a5c2e" />
+        <Text style={styles.headerTitle}>INVESTIGATION MAP</Text>
+      </View>
+      <View style={styles.headerActions}>
+        {isNative ? (
+          <Pressable
+            style={styles.locateBtn}
+            onPress={goToCurrentLocation}
+            disabled={locating}
+            testID="locate-button"
+          >
+            <Navigation size={12} color={locating ? '#b09060' : '#7a5c2e'} />
+          </Pressable>
+        ) : null}
+        {addingPin ? (
+          <Pressable style={styles.doneBtn} onPress={handleDoneAdding} testID="done-adding-button">
+            <Check size={12} color="#f5e4bb" />
+            <Text style={styles.doneBtnText}>Done</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+
+  const renderPinTypeSelector = () => {
+    if (!addingPin) return null;
+    return (
+      <View style={styles.pinTypeSelectorWrap}>
+        <Text style={styles.pinTypeSelectorLabel}>
+          {selectedPinType ? `TAP MAP TO PLACE ${selectedPinType.name.toUpperCase()}` : 'SELECT PIN TYPE'}
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={styles.pinTypeSelectorRow}
+        >
+          {PIN_TYPES.map((pt) => {
+            const isSelected = selectedPinType?.name === pt.name;
+            return (
+              <Pressable
+                key={pt.name}
+                style={[
+                  styles.pinTypeBtn,
+                  { borderColor: pt.color },
+                  isSelected && { backgroundColor: pt.color },
+                ]}
+                onPress={() => setSelectedPinType(pt)}
+                testID={`pin-type-${pt.name.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <Text style={styles.pinTypeBtnEmoji}>{pt.emoji}</Text>
+                <Text style={[styles.pinTypeBtnName, isSelected && { color: '#f5e6c8' }]}>
+                  {pt.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderPinList = () => {
+    if (pins.length === 0) return null;
+    return (
+      <View style={styles.pinList}>
+        <Text style={styles.pinListTitle}>PINS ({pins.length})</Text>
+        <ScrollView
+          style={styles.pinScroll}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+        >
+          {pins.map((pin) => {
+            const pt = getPinType(pin);
+            const note = getPinNote(pin);
+            return (
+              <View key={pin.id} style={styles.pinRow} testID={`pin-row-${pin.id}`}>
+                <View style={[styles.pinDot, { backgroundColor: pt.color }]}>
+                  <Text style={styles.pinDotEmoji}>{pt.emoji}</Text>
+                </View>
+                <View style={styles.pinInfo}>
+                  <View style={styles.pinInfoTop}>
+                    <Text style={[styles.pinTypeName, { color: pt.color }]}>{pt.name}</Text>
+                  </View>
+                  {note ? <Text style={styles.pinNote}>{note}</Text> : null}
+                  <Text style={styles.pinCoords}>
+                    {pin.latitude.toFixed(4)}, {pin.longitude.toFixed(4)}
+                  </Text>
+                </View>
+                <Pressable
+                  style={styles.pinActionBtn}
+                  onPress={() => setEditingPin(pin)}
+                  testID={`pin-edit-${pin.id}`}
+                >
+                  <Pencil size={12} color="#7a5c2e" />
+                </Pressable>
+                <Pressable
+                  style={[styles.pinActionBtn, styles.pinDeleteBtn]}
+                  onPress={() => setDeletingPin(pin)}
+                  testID={`pin-delete-${pin.id}`}
+                >
+                  <Trash2 size={12} color="#8b0000" />
+                </Pressable>
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderModals = () => (
+    <>
+      <NewPinModal
+        visible={showNewPinModal}
+        pinType={selectedPinType}
+        onSave={handleSaveNewPin}
+        onCancel={() => { setShowNewPinModal(false); setPendingCoords(null); }}
+      />
+      <EditLabelModal
+        visible={editingPin !== null}
+        pin={editingPin}
+        onSave={handleSaveEditPin}
+        onCancel={() => setEditingPin(null)}
+      />
+      <DeleteConfirmModal
+        visible={deletingPin !== null}
+        pinLabel={deletingPin?.label ?? ''}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeletingPin(null)}
+      />
+    </>
+  );
+
+  // ─── Web: Leaflet via srcdoc iframe ──────────────────────────────────────────
   if (!isNative) {
-    const leafletHtml = buildLeafletHTML(pins, centerLat, centerLng, addingPin);
-    const iframeSrc = `data:text/html;charset=utf-8,${encodeURIComponent(leafletHtml)}`;
+    const leafletHtml = buildLeafletHTML(pins, centerLat, centerLng, addingPin, selectedPinType);
+    // Key changes when relevant state changes so the iframe re-renders
+    const iframeKey = `${pins.length}-${addingPin}-${selectedPinType?.name ?? 'none'}`;
 
     return (
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Map size={13} color="#7a5c2e" />
-            <Text style={styles.headerTitle}>INVESTIGATION MAP</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <Pressable
-              style={[styles.addPinBtn, addingPin && styles.addPinBtnActive]}
-              onPress={() => {
-                setAddingPin((v) => !v);
-                if (addingPin) setNewPinCoords(null);
-              }}
-            >
-              {addingPin ? <X size={12} color="#8b0000" /> : <Plus size={12} color="#7a5c2e" />}
-              <Text style={[styles.addPinText, addingPin && styles.addPinTextActive]}>
-                {addingPin ? 'Cancel' : 'Add Pin'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
+      <View style={styles.container} testID="category-map-view">
+        {renderHeader()}
+        {renderPinTypeSelector()}
 
-        {addingPin ? (
-          <View style={styles.tapHint}>
-            <MapPinIcon size={11} color="#8b3a00" />
-            <Text style={styles.tapHintText}>Tap anywhere on the map to place a pin</Text>
-          </View>
-        ) : null}
-
-        {/* Leaflet iframe map — web only */}
         <View style={styles.mapWrapper}>
-          {/* @ts-ignore — iframe is valid on web */}
+          {/* @ts-ignore — iframe is valid JSX on web */}
           <iframe
-            src={iframeSrc}
-            style={{ width: '100%', height: 260, border: 'none' }}
+            key={iframeKey}
+            srcDoc={leafletHtml}
+            style={{ width: '100%', height: 280, border: 'none', display: 'block' }}
             title="Investigation Map"
+            sandbox="allow-scripts allow-same-origin"
           />
+          {/* FAB: Add Pin */}
+          {!addingPin ? (
+            <Pressable
+              style={styles.fab}
+              onPress={handleStartAdding}
+              testID="add-pin-fab"
+            >
+              <Plus size={16} color="#f5e6c8" />
+              <Text style={styles.fabText}>Pin</Text>
+            </Pressable>
+          ) : null}
         </View>
 
-        {/* Pin list */}
-        {pins.length > 0 ? (
-          <View style={styles.pinList}>
-            <Text style={styles.pinListTitle}>PINS ({pins.length})</Text>
-            <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              {pins.map((pin) => (
-                <View key={pin.id} style={styles.pinRow}>
-                  <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
-                  <View style={styles.pinInfo}>
-                    <Text style={styles.pinLabel}>{pin.label}</Text>
-                    <Text style={styles.pinCoords}>
-                      {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
-                    </Text>
-                  </View>
-                  <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
-                    <Pencil size={11} color="#7a5c2e" />
-                  </Pressable>
-                  <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin.id)}>
-                    <Trash2 size={11} color="#8b0000" />
-                  </Pressable>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-
-        {/* Edit Modal */}
-        <PinEditModal
-          visible={editingPin !== null}
-          pin={editingPin}
-          onSave={isNewPin ? handleSaveNewPin : handleSaveEditPin}
-          onCancel={() => { setEditingPin(null); setNewPinCoords(null); }}
-        />
+        {renderPinList()}
+        {renderModals()}
       </View>
     );
   }
 
-  // ─── NATIVE: react-native-maps ───────────────────────────────────────────────
+  // ─── Native: react-native-maps ───────────────────────────────────────────────
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Map size={13} color="#7a5c2e" />
-          <Text style={styles.headerTitle}>INVESTIGATION MAP</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable style={styles.locateBtn} onPress={goToCurrentLocation} disabled={locating}>
-            <Navigation size={12} color={locating ? '#b09060' : '#7a5c2e'} />
-          </Pressable>
-          <Pressable
-            style={[styles.addPinBtn, addingPin && styles.addPinBtnActive]}
-            onPress={() => {
-              setAddingPin((v) => !v);
-              if (addingPin) setNewPinCoords(null);
-            }}
-          >
-            {addingPin ? <X size={12} color="#8b0000" /> : <Plus size={12} color="#7a5c2e" />}
-            <Text style={[styles.addPinText, addingPin && styles.addPinTextActive]}>
-              {addingPin ? 'Cancel' : 'Add Pin'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
+    <View style={styles.container} testID="category-map-view">
+      {renderHeader()}
+      {renderPinTypeSelector()}
 
-      {addingPin ? (
-        <View style={styles.tapHint}>
-          <MapPinIcon size={11} color="#8b3a00" />
-          <Text style={styles.tapHintText}>Tap anywhere on the map to place a pin</Text>
-        </View>
-      ) : null}
-
-      {/* Native Map */}
       <View style={styles.mapWrapper}>
         <MapView
           ref={mapRef}
           style={styles.map}
-          initialRegion={defaultRegion}
-          onPress={handleMapPress}
+          initialRegion={{
+            latitude: centerLat,
+            longitude: centerLng,
+            latitudeDelta: 8,
+            longitudeDelta: 8,
+          }}
+          onPress={(e: any) => {
+            const { latitude, longitude } = e.nativeEvent.coordinate;
+            handleMapTap(latitude, longitude);
+          }}
           mapType="standard"
           showsUserLocation
           showsMyLocationButton={false}
         >
-          {pins.map((pin) => (
-            <Marker
-              key={pin.id}
-              coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              pinColor={pin.color}
-              title={pin.label}
-              onCalloutPress={() => handleEditPin(pin)}
-            />
-          ))}
+          {pins.map((pin) => {
+            const pt = getPinType(pin);
+            return (
+              <Marker
+                key={pin.id}
+                coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+                title={pt.name}
+                description={getPinNote(pin)}
+              >
+                {/* Custom marker view */}
+                <View style={[styles.nativeMarker, { backgroundColor: pt.color }]}>
+                  <Text style={styles.nativeMarkerEmoji}>{pt.emoji}</Text>
+                </View>
+                {Callout ? (
+                  <Callout>
+                    <View style={styles.callout}>
+                      <Text style={styles.calloutType}>{pt.emoji} {pt.name}</Text>
+                      {getPinNote(pin) ? (
+                        <Text style={styles.calloutNote}>{getPinNote(pin)}</Text>
+                      ) : null}
+                      <View style={styles.calloutActions}>
+                        <Pressable
+                          style={styles.calloutEditBtn}
+                          onPress={() => setEditingPin(pin)}
+                        >
+                          <Pencil size={11} color="#7a5c2e" />
+                          <Text style={styles.calloutEditText}>Edit</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.calloutDeleteBtn}
+                          onPress={() => setDeletingPin(pin)}
+                        >
+                          <Trash2 size={11} color="#8b0000" />
+                          <Text style={styles.calloutDeleteText}>Remove</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </Callout>
+                ) : null}
+              </Marker>
+            );
+          })}
         </MapView>
+
+        {/* FAB: Add Pin */}
+        {!addingPin ? (
+          <Pressable style={styles.fab} onPress={handleStartAdding} testID="add-pin-fab">
+            <Plus size={16} color="#f5e6c8" />
+            <Text style={styles.fabText}>Pin</Text>
+          </Pressable>
+        ) : null}
       </View>
 
-      {/* Pin list */}
-      {pins.length > 0 ? (
-        <View style={styles.pinList}>
-          <Text style={styles.pinListTitle}>PINS ({pins.length})</Text>
-          <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-            {pins.map((pin) => (
-              <View key={pin.id} style={styles.pinRow}>
-                <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
-                <View style={styles.pinInfo}>
-                  <Text style={styles.pinLabel}>{pin.label}</Text>
-                  <Text style={styles.pinCoords}>
-                    {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
-                  </Text>
-                </View>
-                <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
-                  <Pencil size={11} color="#7a5c2e" />
-                </Pressable>
-                <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin.id)}>
-                  <Trash2 size={11} color="#8b0000" />
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
-
-      {/* Edit Modal */}
-      <PinEditModal
-        visible={editingPin !== null}
-        pin={editingPin}
-        onSave={isNewPin ? handleSaveNewPin : handleSaveEditPin}
-        onCancel={() => { setEditingPin(null); setNewPinCoords(null); }}
-      />
+      {renderPinList()}
+      {renderModals()}
     </View>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     marginTop: 12,
     marginBottom: 4,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(139,90,0,0.25)',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(139,90,0,0.28)',
+    backgroundColor: 'rgba(255,253,245,0.18)',
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     backgroundColor: 'rgba(139,90,0,0.1)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(139,90,0,0.15)',
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerTitle: { fontSize: 9, fontWeight: '800', color: '#7a5c2e', letterSpacing: 2 },
+  headerTitle: { fontSize: 9, fontWeight: '800', color: '#7a5c2e', letterSpacing: 2.5 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   locateBtn: {
     padding: 6,
@@ -601,82 +758,183 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(139,90,0,0.2)',
   },
-  addPinBtn: {
+  doneBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
+    paddingHorizontal: 11,
     paddingVertical: 6,
-    backgroundColor: 'rgba(255,255,255,0.5)',
+    backgroundColor: '#5c2200',
     borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(139,90,0,0.2)',
   },
-  addPinBtnActive: {
-    backgroundColor: 'rgba(139,0,0,0.08)',
-    borderColor: 'rgba(139,0,0,0.3)',
+  doneBtnText: { fontSize: 10, fontWeight: '800', color: '#f5e4bb', letterSpacing: 0.5 },
+
+  // Pin type selector
+  pinTypeSelectorWrap: {
+    paddingTop: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(139,90,0,0.12)',
+    backgroundColor: 'rgba(245,230,200,0.35)',
   },
-  addPinText: { fontSize: 10, fontWeight: '700', color: '#7a5c2e', letterSpacing: 0.5 },
-  addPinTextActive: { color: '#8b0000' },
-  tapHint: {
+  pinTypeSelectorLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#8b3a00',
+    letterSpacing: 2,
+    paddingHorizontal: 12,
+    marginBottom: 7,
+  },
+  pinTypeSelectorRow: {
+    paddingHorizontal: 10,
+    gap: 7,
+    flexDirection: 'row',
+  },
+  pinTypeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: 'rgba(139,58,0,0.08)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(139,90,0,0.12)',
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.5)',
   },
-  tapHintText: { fontSize: 10, color: '#8b3a00', fontStyle: 'italic' },
-  mapWrapper: { height: 260, width: '100%' },
-  map: { flex: 1, height: 260 },
+  pinTypeBtnEmoji: { fontSize: 13 },
+  pinTypeBtnName: { fontSize: 10, fontWeight: '700', color: '#3d2600' },
+
+  // Map
+  mapWrapper: { height: 280, width: '100%', position: 'relative' },
+  map: { flex: 1 },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    backgroundColor: '#5c2200',
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  fabText: { fontSize: 12, fontWeight: '800', color: '#f5e6c8', letterSpacing: 0.5 },
+
+  // Pin list
   pinList: {
     paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 9,
+    paddingBottom: 6,
     borderTopWidth: 1,
     borderTopColor: 'rgba(139,90,0,0.15)',
   },
-  pinListTitle: { fontSize: 8, fontWeight: '800', color: '#9a7c4e', letterSpacing: 2, marginBottom: 6 },
-  pinScroll: { maxHeight: 130 },
+  pinListTitle: { fontSize: 8, fontWeight: '800', color: '#9a7c4e', letterSpacing: 2, marginBottom: 7 },
+  pinScroll: { maxHeight: 160 },
   pinRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
+    gap: 9,
+    paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(139,90,0,0.08)',
+    borderBottomColor: 'rgba(139,90,0,0.07)',
   },
-  pinColorDot: { width: 10, height: 10, borderRadius: 5 },
-  pinInfo: { flex: 1 },
-  pinLabel: { fontSize: 11, fontWeight: '700', color: '#3d2600' },
-  pinCoords: { fontSize: 9, color: '#9a7c4e', marginTop: 1, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
-  pinEditBtn: { padding: 6 },
-  pinDeleteBtn: { padding: 6 },
-  webFallback: {
-    marginTop: 12,
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(139,90,0,0.25)',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    flexDirection: 'row',
+  pinDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    flexShrink: 0,
   },
-  webFallbackText: {
-    fontSize: 11,
+  pinDotEmoji: { fontSize: 14 },
+  pinInfo: { flex: 1, gap: 1 },
+  pinInfoTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  pinTypeName: { fontSize: 11, fontWeight: '800' },
+  pinNote: { fontSize: 10, color: '#5c3d10', fontStyle: 'italic' },
+  pinCoords: {
+    fontSize: 8,
     color: '#9a7c4e',
-    fontStyle: 'italic',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginTop: 1,
   },
+  pinActionBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,90,0,0.15)',
+  },
+  pinDeleteBtn: {
+    backgroundColor: 'rgba(139,0,0,0.06)',
+    borderColor: 'rgba(139,0,0,0.2)',
+  },
+
+  // Native marker
+  nativeMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  nativeMarkerEmoji: { fontSize: 16 },
+
+  // Callout
+  callout: {
+    width: 160,
+    padding: 8,
+    backgroundColor: '#f5e6c8',
+  },
+  calloutType: { fontSize: 12, fontWeight: '800', color: '#3d2600', marginBottom: 2 },
+  calloutNote: { fontSize: 10, color: '#5c3d10', fontStyle: 'italic', marginBottom: 6 },
+  calloutActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  calloutEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(122,92,46,0.12)',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(122,92,46,0.3)',
+  },
+  calloutEditText: { fontSize: 10, fontWeight: '700', color: '#7a5c2e' },
+  calloutDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(139,0,0,0.08)',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(139,0,0,0.25)',
+  },
+  calloutDeleteText: { fontSize: 10, fontWeight: '700', color: '#8b0000' },
 });
 
-const editModalStyles = StyleSheet.create({
+const modalStyles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -684,32 +942,58 @@ const editModalStyles = StyleSheet.create({
   sheet: {
     width: '100%',
     backgroundColor: '#f5e6c8',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowRadius: 18,
+    elevation: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(139,90,0,0.2)',
   },
-  title: { fontSize: 12, fontWeight: '900', color: '#8b3a00', letterSpacing: 3, marginBottom: 14 },
-  label: { fontSize: 8, fontWeight: '800', color: '#7a5c2e', letterSpacing: 2, marginBottom: 5 },
+  title: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#8b3a00',
+    letterSpacing: 3,
+    marginBottom: 14,
+  },
+  typeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    borderRadius: 8,
+    borderWidth: 2,
+    marginBottom: 14,
+  },
+  typeBadgeEmoji: { fontSize: 18 },
+  typeBadgeName: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  fieldLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#7a5c2e',
+    letterSpacing: 2,
+    marginBottom: 6,
+  },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 8,
     backgroundColor: 'rgba(255,255,255,0.55)',
-    borderRadius: 7,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(139,90,0,0.22)',
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 14,
+    paddingVertical: 9,
+    marginBottom: 18,
   },
   input: { flex: 1, fontSize: 13, color: '#3d1f00' },
-  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 },
-  colorSwatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: 'transparent' },
-  colorSwatchActive: { borderColor: '#3d1f00', transform: [{ scale: 1.2 }] },
+  deleteMsg: { fontSize: 13, color: '#5c3d10', lineHeight: 19, marginBottom: 18 },
+  deleteMsgBold: { fontWeight: '800', color: '#3d1f00' },
   actionRow: { flexDirection: 'row', gap: 10 },
   cancelBtn: {
     flex: 1,
@@ -717,9 +1001,9 @@ const editModalStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    paddingVertical: 10,
+    paddingVertical: 11,
     backgroundColor: 'rgba(255,255,255,0.45)',
-    borderRadius: 8,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: 'rgba(139,90,0,0.2)',
   },
@@ -730,9 +1014,20 @@ const editModalStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    paddingVertical: 10,
+    paddingVertical: 11,
     backgroundColor: '#5c2200',
-    borderRadius: 8,
+    borderRadius: 9,
   },
-  saveText: { fontSize: 12, fontWeight: '800', color: '#f5e4bb', letterSpacing: 0.5 },
+  saveBtnText: { fontSize: 12, fontWeight: '800', color: '#f5e4bb', letterSpacing: 0.5 },
+  deleteBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 11,
+    backgroundColor: '#8b0000',
+    borderRadius: 9,
+  },
+  deleteBtnText: { fontSize: 12, fontWeight: '800', color: '#f5e4bb', letterSpacing: 0.5 },
 });
