@@ -16,6 +16,7 @@ import { MapPin, Clock, Trash2, ChevronDown, ChevronUp, Camera, Pencil, Check, X
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { JournalEntry, useJournalStore } from './JournalStore';
+import { uploadImageFromUri } from '@/utils/uploadImage';
 
 interface EntryCardProps {
   entry: JournalEntry;
@@ -32,27 +33,6 @@ const INTENSITY_COLORS: Record<string, string> = {
 };
 
 const INTENSITIES = ['Low', 'Medium', 'High', 'Extreme'];
-
-async function uploadImage(uri: string, filename: string, mimeType: string): Promise<string> {
-  const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
-  const formData = new FormData();
-
-  if (typeof document !== 'undefined') {
-    // Web: fetch the blob from the local object URL, then append as File
-    const res = await fetch(uri);
-    const blob = await res.blob();
-    const file = new File([blob], filename, { type: mimeType });
-    formData.append('file', file);
-  } else {
-    // Native: use React Native FormData format
-    formData.append('file', { uri, type: mimeType, name: filename } as unknown as Blob);
-  }
-
-  const response = await fetch(`${BACKEND_URL}/api/upload`, { method: 'POST', body: formData });
-  const data = await response.json() as { data?: { url: string }; error?: string };
-  if (!response.ok) throw new Error(data.error ?? 'Upload failed');
-  return data.data!.url;
-}
 
 export function EntryCard({ entry, index, onDelete, activityTypes }: EntryCardProps) {
   const updateEntry = useJournalStore((s) => s.updateEntry);
@@ -111,7 +91,7 @@ export function EntryCard({ entry, index, onDelete, activityTypes }: EntryCardPr
     const asset = result.assets[0];
     setUploadingImage(true);
     try {
-      const url = await uploadImage(asset.uri, asset.fileName ?? `evidence-${Date.now()}.jpg`, asset.mimeType ?? 'image/jpeg');
+      const url = await uploadImageFromUri(asset.uri, asset.fileName ?? `evidence-${Date.now()}.jpg`, asset.mimeType ?? 'image/jpeg');
       setImageUrl(url);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch { Alert.alert('Upload Failed', 'Could not upload image.'); }

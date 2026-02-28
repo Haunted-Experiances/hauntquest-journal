@@ -33,6 +33,7 @@ import {
   PenLine,
 } from 'lucide-react-native';
 import { JournalCategory, JournalEntry, useJournalStore } from './JournalStore';
+import { uploadImageFromUri } from '@/utils/uploadImage';
 
 interface EntryFormProps {
   category: JournalCategory;
@@ -59,27 +60,6 @@ function getTodayDate(): string {
 function getCurrentTime(): string {
   const now = new Date();
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-}
-
-async function uploadImageToBackend(uri: string, filename: string, mimeType: string): Promise<string> {
-  const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
-  const formData = new FormData();
-
-  if (typeof document !== 'undefined') {
-    // Web: fetch the blob from the local object URL, then append as File
-    const res = await fetch(uri);
-    const blob = await res.blob();
-    const file = new File([blob], filename, { type: mimeType });
-    formData.append('file', file);
-  } else {
-    // Native: use React Native FormData format
-    formData.append('file', { uri, type: mimeType, name: filename } as unknown as Blob);
-  }
-
-  const response = await fetch(`${BACKEND_URL}/api/upload`, { method: 'POST', body: formData });
-  const data = await response.json() as { data?: { url: string }; error?: string };
-  if (!response.ok) throw new Error(data.error ?? 'Upload failed');
-  return data.data!.url;
 }
 
 export function EntryForm({ category, activityTypes }: EntryFormProps) {
@@ -163,7 +143,7 @@ export function EntryForm({ category, activityTypes }: EntryFormProps) {
     setUploadedImageUrl(null);
     setIsUploading(true);
     try {
-      const url = await uploadImageToBackend(uri, filename, mimeType);
+      const url = await uploadImageFromUri(uri, filename, mimeType);
       setUploadedImageUrl(url);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {

@@ -28,6 +28,7 @@ import {
   Cinzel_900Black,
 } from '@expo-google-fonts/cinzel';
 import { useJournalStore } from '@/components/journal/JournalStore';
+import { uploadImageFromUri } from '@/utils/uploadImage';
 
 const { width: W, height: H } = Dimensions.get('window');
 
@@ -132,21 +133,12 @@ export default function HomeScreen() {
     setUploading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
-      const formData = new FormData();
-      formData.append('file', {
-        uri: asset.uri,
-        type: asset.mimeType ?? 'image/jpeg',
-        name: asset.fileName ?? `bg-${Date.now()}.jpg`,
-      } as unknown as Blob);
-
-      const response = await fetch(`${BACKEND_URL}/api/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await response.json() as { data?: { url: string }; error?: string };
-      if (!response.ok) throw new Error(data.error ?? 'Upload failed');
-      setBackgroundImageUrl(data.data!.url);
+      const url = await uploadImageFromUri(
+        asset.uri,
+        asset.fileName ?? `bg-${Date.now()}.jpg`,
+        asset.mimeType ?? 'image/jpeg',
+      );
+      setBackgroundImageUrl(url);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       Alert.alert('Upload Failed', 'Could not upload the image. Please try again.');
