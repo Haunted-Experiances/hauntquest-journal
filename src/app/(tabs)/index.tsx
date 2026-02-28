@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     position: 'absolute',
-    top: 56,
+    top: 140,
     left: 0,
     right: 0,
     alignItems: 'center',
