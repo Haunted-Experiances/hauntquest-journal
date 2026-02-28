@@ -7,7 +7,8 @@ export type JournalCategory =
   | 'poltergeist'
   | 'ghost-sightings'
   | 'evp'
-  | 'emf';
+  | 'emf'
+  | 'real-video';
 
 export interface JournalEntry {
   id: string;

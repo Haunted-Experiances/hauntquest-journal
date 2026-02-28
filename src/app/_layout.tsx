@@ -28,6 +28,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="journal/ghost-sightings" options={{ headerShown: false }} />
         <Stack.Screen name="journal/evp" options={{ headerShown: false }} />
         <Stack.Screen name="journal/emf" options={{ headerShown: false }} />
+        <Stack.Screen name="journal/real-video" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );

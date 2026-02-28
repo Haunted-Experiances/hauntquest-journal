@@ -45,6 +45,7 @@ const JOURNALS = [
   { route: '/journal/ghost-sightings', label: 'Ghost Sightings', color: '#48c9b0', emoji: '👻' },
   { route: '/journal/evp',             label: 'EVP Evidence',    color: '#52be80', emoji: '🎙️' },
   { route: '/journal/emf',             label: 'EMF Evidence',    color: '#e67e22', emoji: '📡' },
+  { route: '/journal/real-video',      label: 'Real Video',      color: '#e74c3c', emoji: '📹' },
 ];
 
 function FlickerDot({ color }: { color: string }) {
@@ -438,10 +439,12 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
+    justifyContent: 'space-between',
   },
   journalBtn: {
-    flex: 1,
+    width: '30%',
     borderRadius: 10,
     overflow: 'hidden',
   },
