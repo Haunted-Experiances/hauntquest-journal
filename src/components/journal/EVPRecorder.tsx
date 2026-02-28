@@ -7,12 +7,17 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useFonts, Cinzel_900Black } from '@expo-google-fonts/cinzel';
 import { Mic, Square, Play, Pause, Trash2, Rewind, FastForward } from 'lucide-react-native';
+import { useJournalStore } from './JournalStore';
+import { uploadAudioFromUri } from '@/utils/uploadImage';
+import type { EVPRecording as StoredEVPRecording } from './JournalStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const NUM_BARS = 20;
@@ -41,6 +46,12 @@ export function EVPRecorder() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [recordingDuration, setRecordingDuration] = useState<number>(0);
   const [listOpen, setListOpen] = useState<boolean>(true);
+  const [savedListOpen, setSavedListOpen] = useState<boolean>(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const addEVPRecording = useJournalStore(s => s.addEVPRecording);
+  const deleteEVPRecording = useJournalStore(s => s.deleteEVPRecording);
+  const savedEVPs = useJournalStore(s => s.evpRecordings);
 
   const recorderRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -48,6 +59,7 @@ export function EVPRecorder() {
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordPulse = useRef(new Animated.Value(1)).current;
   const dropdownRotate = useRef(new Animated.Value(1)).current;
+  const savedDropdownRotate = useRef(new Animated.Value(1)).current;
 
   // 20 Animated bars for EQ visualizer
   const eqBars = useRef<Animated.Value[]>(
@@ -86,17 +98,14 @@ export function EVPRecorder() {
         let targetHeight: number;
 
         if (isRecording) {
-          // While recording: random bars based on meter level
           const base = meterLevel * 0.7;
           const noise = (Math.random() - 0.5) * 0.5;
           const wave = Math.sin((Date.now() / 200) + i * 0.5) * 0.15;
           targetHeight = Math.max(0.05, Math.min(1, base + noise + wave));
         } else if (isPlaying) {
-          // While playing: wave pattern
           const wave = (Math.sin((Date.now() / 300) + i * 0.4) + 1) / 2;
           targetHeight = 0.15 + wave * 0.6;
         } else {
-          // Idle: slow low pulse
           const pulse = (Math.sin((Date.now() / 1500) + i * 0.3) + 1) / 2;
           targetHeight = 0.03 + pulse * 0.12;
         }
@@ -144,12 +153,37 @@ export function EVPRecorder() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
       });
 
       const recording = new Audio.Recording();
       await recording.prepareToRecordAsync({
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
         isMeteringEnabled: true,
+        android: {
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC,
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.m4a',
+          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+          audioQuality: Audio.IOSAudioQuality.HIGH,
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {
+          mimeType: 'audio/webm',
+          bitsPerSecond: 128000,
+        },
       });
       await recording.startAsync();
       recorderRef.current = recording;
@@ -163,7 +197,6 @@ export function EVPRecorder() {
         if (recorderRef.current) {
           const status = await recorderRef.current.getStatusAsync();
           if (status.isRecording && status.metering !== undefined) {
-            // metering is in dB, typically -160 to 0. Normalize to 0-1
             const db = status.metering;
             const normalized = Math.max(0, Math.min(1, (db + 60) / 60));
             setMeterLevel(normalized);
@@ -210,6 +243,9 @@ export function EVPRecorder() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
       });
 
       if (uri) {
@@ -263,7 +299,6 @@ export function EVPRecorder() {
     try {
       await Haptics.selectionAsync();
 
-      // If already playing this one, pause it
       if (playingId === rec.id && soundRef.current) {
         if (isPlaying) {
           await soundRef.current.pauseAsync();
@@ -275,7 +310,6 @@ export function EVPRecorder() {
         return;
       }
 
-      // Stop current sound
       if (soundRef.current) {
         await soundRef.current.stopAsync().catch(() => {});
         await soundRef.current.unloadAsync().catch(() => {});
@@ -285,6 +319,9 @@ export function EVPRecorder() {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
       });
 
       const { sound } = await Audio.Sound.createAsync(
@@ -313,6 +350,61 @@ export function EVPRecorder() {
     }
   }, [playingId, isPlaying, playbackRate]);
 
+  const playSavedRecording = useCallback(async (rec: StoredEVPRecording) => {
+    try {
+      await Haptics.selectionAsync();
+
+      if (playingId === rec.id && soundRef.current) {
+        if (isPlaying) {
+          await soundRef.current.pauseAsync();
+          setIsPlaying(false);
+        } else {
+          await soundRef.current.playAsync();
+          setIsPlaying(true);
+        }
+        return;
+      }
+
+      if (soundRef.current) {
+        await soundRef.current.stopAsync().catch(() => {});
+        await soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: rec.audioUrl },
+        { shouldPlay: true, rate: playbackRate, shouldCorrectPitch: true },
+        (status: AVPlaybackStatus) => {
+          if (status.isLoaded) {
+            setPlaybackPosition(status.positionMillis ?? 0);
+            setPlaybackDuration(status.durationMillis ?? rec.duration);
+            setIsPlaying(status.isPlaying);
+            if (status.didJustFinish) {
+              setPlayingId(null);
+              setIsPlaying(false);
+              setPlaybackPosition(0);
+            }
+          }
+        }
+      );
+
+      soundRef.current = sound;
+      setPlayingId(rec.id);
+      setIsPlaying(true);
+      setPlaybackPosition(0);
+    } catch (err) {
+      console.error('Failed to play saved recording:', err);
+    }
+  }, [playingId, isPlaying, playbackRate]);
+
   const rewind = useCallback(async () => {
     if (!soundRef.current) return;
     const newPos = Math.max(0, playbackPosition - 5000);
@@ -338,6 +430,41 @@ export function EVPRecorder() {
     setRecordings(prev => prev.filter(r => r.id !== id));
   }, [playingId]);
 
+  const handleDeleteSaved = useCallback(async (id: string) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (playingId === id) {
+      await soundRef.current?.stopAsync().catch(() => {});
+      await soundRef.current?.unloadAsync().catch(() => {});
+      soundRef.current = null;
+      setPlayingId(null);
+      setIsPlaying(false);
+      setPlaybackPosition(0);
+    }
+    deleteEVPRecording(id);
+  }, [playingId, deleteEVPRecording]);
+
+  const handleSaveRecording = useCallback(async (rec: EVPRecording) => {
+    setSavingId(rec.id);
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const filename = `${rec.name}.m4a`;
+      const audioUrl = await uploadAudioFromUri(rec.uri, filename);
+      const stored: StoredEVPRecording = {
+        id: rec.id,
+        name: rec.name,
+        audioUrl,
+        duration: rec.duration,
+        createdAt: rec.createdAt,
+      };
+      addEVPRecording(stored);
+      Alert.alert('Saved', `"${rec.name}" has been saved to your EVP library.`);
+    } catch {
+      Alert.alert('Save Failed', 'Could not save the recording. Please try again.');
+    } finally {
+      setSavingId(null);
+    }
+  }, [addEVPRecording]);
+
   const changeSpeed = useCallback(async (rate: number) => {
     await Haptics.selectionAsync();
     setPlaybackRate(rate);
@@ -356,6 +483,17 @@ export function EVPRecorder() {
     }).start();
     Haptics.selectionAsync();
   }, [listOpen, dropdownRotate]);
+
+  const toggleSavedList = useCallback(() => {
+    const next = !savedListOpen;
+    setSavedListOpen(next);
+    Animated.timing(savedDropdownRotate, {
+      toValue: next ? 1 : 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+    Haptics.selectionAsync();
+  }, [savedListOpen, savedDropdownRotate]);
 
   const formatDuration = (ms: number): string => {
     const totalSec = Math.floor(ms / 1000);
@@ -647,6 +785,18 @@ export function EVPRecorder() {
                           <View style={{ flex: 1 }} />
 
                           <Pressable
+                            onPress={() => handleSaveRecording(rec)}
+                            style={[styles.saveRecBtn, savingId === rec.id && styles.saveRecBtnDisabled]}
+                            disabled={savingId === rec.id}
+                            testID={`save-button-${rec.id}`}
+                          >
+                            {savingId === rec.id
+                              ? <ActivityIndicator size="small" color="#e8c870" />
+                              : <Text style={styles.saveRecBtnText}>SAVE</Text>
+                            }
+                          </Pressable>
+
+                          <Pressable
                             onPress={() => deleteRecording(rec.id)}
                             testID={`delete-button-${rec.id}`}
                             style={styles.deleteBtn}
@@ -661,6 +811,135 @@ export function EVPRecorder() {
                             <View
                               style={[
                                 styles.progressBarFill,
+                                { width: `${progress * 100}%` as any },
+                              ]}
+                            />
+                          </View>
+                          {isThisPlaying ? (
+                            <View style={styles.progressTimeRow}>
+                              <Text style={styles.progressTime}>
+                                {formatDuration(playbackPosition)}
+                              </Text>
+                              <Text style={styles.progressTime}>
+                                {formatDuration(playbackDuration || rec.duration)}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </LinearGradient>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          ) : null}
+        </View>
+
+        {/* Saved EVP Library */}
+        <View style={[styles.recordingsSection, styles.savedSection]}>
+          <Pressable onPress={toggleSavedList} style={styles.savedRecordingsHeader} testID="evp-saved-list-toggle">
+            <View style={styles.recordingsHeaderLeft}>
+              <Text style={styles.savedRecordingsTitle}>SAVED EVP LIBRARY</Text>
+              <View style={styles.savedRecordingsBadge}>
+                <Text style={styles.savedRecordingsBadgeText}>{savedEVPs.length}</Text>
+              </View>
+            </View>
+            <Animated.View style={{
+              transform: [{
+                rotate: savedDropdownRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] })
+              }]
+            }}>
+              <Text style={styles.savedDropdownArrow}>▼</Text>
+            </Animated.View>
+          </Pressable>
+
+          {savedListOpen ? (
+            <View style={styles.dropdownContent}>
+              {savedEVPs.length === 0 ? (
+                <View style={[styles.emptyState, styles.savedEmptyState]} testID="evp-saved-empty-state">
+                  <Text style={styles.savedEmptyStateText}>NO SAVED RECORDINGS</Text>
+                  <Text style={styles.savedEmptyStateSubtext}>Press SAVE on a captured recording to persist it</Text>
+                </View>
+              ) : (
+                savedEVPs.map(rec => {
+                  const isThisPlaying = playingId === rec.id;
+                  const progress =
+                    isThisPlaying && playbackDuration > 0
+                      ? playbackPosition / playbackDuration
+                      : 0;
+
+                  return (
+                    <View key={rec.id} style={[styles.recordingItem, styles.savedRecordingItem]} testID={`saved-recording-item-${rec.id}`}>
+                      <LinearGradient
+                        colors={['rgba(20,15,0,0.9)', 'rgba(12,9,0,0.95)']}
+                        style={styles.recordingItemGradient}
+                      >
+                        <View style={styles.recordingInfoRow}>
+                          <View style={styles.recordingNameCol}>
+                            <Text style={[styles.recordingName, styles.savedRecordingName]} numberOfLines={1}>
+                              {rec.name}
+                            </Text>
+                            <Text style={styles.recordingMeta}>
+                              {formatDuration(rec.duration)} — {new Date(rec.createdAt).toLocaleTimeString()}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.controlsRow}>
+                          <Pressable
+                            onPress={isThisPlaying ? rewind : undefined}
+                            testID={`saved-rew-button-${rec.id}`}
+                            style={[styles.controlBtn, !isThisPlaying && styles.controlBtnDisabled]}
+                          >
+                            <Rewind size={16} color={isThisPlaying ? '#e8c870' : '#5a4a20'} />
+                          </Pressable>
+
+                          <Pressable
+                            onPress={() => playSavedRecording(rec)}
+                            testID={`saved-play-button-${rec.id}`}
+                            style={styles.savedPlayBtn}
+                          >
+                            <LinearGradient
+                              colors={
+                                isThisPlaying && isPlaying
+                                  ? ['#c8a830', '#e8c870', '#d4b450']
+                                  : ['#3a2a00', '#5a4400', '#4a3800']
+                              }
+                              style={styles.playBtnGradient}
+                            >
+                              {isThisPlaying && isPlaying ? (
+                                <Pause size={18} color="#000" fill="#000" />
+                              ) : (
+                                <Play size={18} color="#e8c870" fill="#e8c870" />
+                              )}
+                            </LinearGradient>
+                          </Pressable>
+
+                          <Pressable
+                            onPress={isThisPlaying ? fastForward : undefined}
+                            testID={`saved-ff-button-${rec.id}`}
+                            style={[styles.controlBtn, !isThisPlaying && styles.controlBtnDisabled]}
+                          >
+                            <FastForward size={16} color={isThisPlaying ? '#e8c870' : '#5a4a20'} />
+                          </Pressable>
+
+                          <View style={{ flex: 1 }} />
+
+                          <Pressable
+                            onPress={() => handleDeleteSaved(rec.id)}
+                            testID={`saved-delete-button-${rec.id}`}
+                            style={styles.deleteBtn}
+                          >
+                            <Trash2 size={16} color="#ff4040" />
+                          </Pressable>
+                        </View>
+
+                        <View style={styles.progressBarContainer}>
+                          <View style={styles.progressBarBg}>
+                            <View
+                              style={[
+                                styles.progressBarFill,
+                                styles.savedProgressBarFill,
                                 { width: `${progress * 100}%` as any },
                               ]}
                             />
@@ -973,6 +1252,9 @@ const styles = StyleSheet.create({
   recordingsSection: {
     marginHorizontal: 16,
   },
+  savedSection: {
+    marginTop: 16,
+  },
   recordingsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -983,6 +1265,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,255,136,0.2)',
     backgroundColor: 'rgba(0,25,10,0.8)',
+    marginBottom: 0,
+  },
+  savedRecordingsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(232,200,112,0.3)',
+    backgroundColor: 'rgba(20,15,0,0.8)',
     marginBottom: 0,
   },
   recordingsHeaderLeft: {
@@ -1006,8 +1300,28 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
+  savedRecordingsBadge: {
+    backgroundColor: 'rgba(232,200,112,0.2)',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(232,200,112,0.35)',
+  },
+  savedRecordingsBadgeText: {
+    color: '#e8c870',
+    fontSize: 10,
+    fontWeight: '700',
+  },
   dropdownArrow: {
     color: '#00ff88',
+    fontSize: 11,
+  },
+  savedDropdownArrow: {
+    color: '#e8c870',
     fontSize: 11,
   },
   dropdownContent: {
@@ -1015,6 +1329,12 @@ const styles = StyleSheet.create({
   },
   recordingsTitle: {
     color: '#00cc66',
+    fontSize: 11,
+    letterSpacing: 3,
+    fontWeight: '700',
+  },
+  savedRecordingsTitle: {
+    color: '#e8c870',
     fontSize: 11,
     letterSpacing: 3,
     fontWeight: '700',
@@ -1027,6 +1347,9 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: 'rgba(0,255,136,0.1)',
   },
+  savedEmptyState: {
+    borderColor: 'rgba(232,200,112,0.15)',
+  },
   emptyStateText: {
     color: '#2a5a3a',
     fontSize: 12,
@@ -1034,8 +1357,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 8,
   },
+  savedEmptyStateText: {
+    color: '#5a4a20',
+    fontSize: 12,
+    letterSpacing: 3,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
   emptyStateSubtext: {
     color: '#1a4a2a',
+    fontSize: 11,
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  savedEmptyStateSubtext: {
+    color: '#3a2a00',
     fontSize: 11,
     letterSpacing: 1,
     textAlign: 'center',
@@ -1048,6 +1384,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(0,255,136,0.15)',
+  },
+  savedRecordingItem: {
+    borderColor: 'rgba(232,200,112,0.3)',
   },
   recordingItemGradient: {
     padding: 12,
@@ -1067,6 +1406,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1,
     marginBottom: 2,
+  },
+  savedRecordingName: {
+    color: '#e8c870',
   },
   recordingMeta: {
     color: '#2a6a3a',
@@ -1101,6 +1443,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 8,
   },
+  savedPlayBtn: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    shadowColor: '#e8c870',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+  },
   playBtnGradient: {
     width: 44,
     height: 44,
@@ -1117,6 +1467,28 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,60,60,0.25)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // Save button
+  saveRecBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 4,
+    backgroundColor: 'rgba(232,200,112,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,200,112,0.4)',
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveRecBtnDisabled: {
+    opacity: 0.5,
+  },
+  saveRecBtnText: {
+    color: '#e8c870',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 
   // Progress bar
@@ -1137,6 +1509,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
     shadowRadius: 3,
+  },
+  savedProgressBarFill: {
+    backgroundColor: '#e8c870',
+    shadowColor: '#e8c870',
   },
   progressTimeRow: {
     flexDirection: 'row',

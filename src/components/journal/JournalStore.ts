@@ -10,6 +10,14 @@ export type JournalCategory =
   | 'emf'
   | 'real-video';
 
+export interface EVPRecording {
+  id: string;
+  name: string;
+  audioUrl: string;
+  duration: number;
+  createdAt: string;
+}
+
 export interface JournalEntry {
   id: string;
   category: JournalCategory;
@@ -30,6 +38,7 @@ interface JournalState {
   entries: JournalEntry[];
   backgroundImageUrl: string | null;
   savedBackgrounds: string[];
+  evpRecordings: EVPRecording[];
   addEntry: (entry: JournalEntry) => void;
   deleteEntry: (id: string) => void;
   updateEntry: (id: string, updates: Partial<Omit<JournalEntry, 'id' | 'category' | 'createdAt'>>) => void;
@@ -38,6 +47,8 @@ interface JournalState {
   removeSavedBackground: (url: string) => void;
   getEntriesByCategory: (category: JournalCategory) => JournalEntry[];
   exportToCSV: (category: JournalCategory) => string;
+  addEVPRecording: (rec: EVPRecording) => void;
+  deleteEVPRecording: (id: string) => void;
 }
 
 export const useJournalStore = create<JournalState>()(
@@ -46,6 +57,7 @@ export const useJournalStore = create<JournalState>()(
       entries: [],
       backgroundImageUrl: null,
       savedBackgrounds: [],
+      evpRecordings: [],
 
       addEntry: (entry: JournalEntry) => {
         set((state) => ({ entries: [entry, ...state.entries] }));
@@ -117,6 +129,12 @@ export const useJournalStore = create<JournalState>()(
           )
           .join('\n');
       },
+
+      addEVPRecording: (rec: EVPRecording) =>
+        set((state) => ({ evpRecordings: [rec, ...state.evpRecordings] })),
+
+      deleteEVPRecording: (id: string) =>
+        set((state) => ({ evpRecordings: state.evpRecordings.filter((r) => r.id !== id) })),
     }),
     {
       name: 'haunted-journal-storage',
