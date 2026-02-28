@@ -28,12 +28,14 @@ if (isNative) {
   Location = require('expo-location');
 }
 
-// react-native-webview for web Leaflet map
+// WebView — works on native, but on web we use a raw iframe instead
 let WebView: any = null;
-try {
-  WebView = require('react-native-webview').WebView;
-} catch {
-  WebView = null;
+if (isNative) {
+  try {
+    WebView = require('react-native-webview').WebView;
+  } catch {
+    WebView = null;
+  }
 }
 
 const PIN_COLORS = [
@@ -221,6 +223,8 @@ function buildLeafletHTML(
       var msg = JSON.stringify({ type: 'MAP_TAP', lat: e.latlng.lat, lng: e.latlng.lng });
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(msg);
+      } else {
+        window.parent.postMessage(msg, '*');
       }
     });
   })();
@@ -242,6 +246,8 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
   const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
+  const addingPinRef = useRef(addingPin);
+  addingPinRef.current = addingPin;
 
   const centerLat = 40.7128;
   const centerLng = -74.006;
@@ -364,18 +370,34 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
 
   const isNewPin = editingPin?.id === '__new__';
 
-  // ─── WEB: Leaflet via WebView ────────────────────────────────────────────────
-  if (!isNative) {
-    if (!WebView) {
-      return (
-        <View style={styles.webFallback}>
-          <Map size={16} color="#9a7c4e" />
-          <Text style={styles.webFallbackText}>Map requires react-native-webview</Text>
-        </View>
-      );
-    }
+  // On web, listen for postMessage from the iframe
+  React.useEffect(() => {
+    if (isNative) return;
+    const handler = (ev: MessageEvent) => {
+      try {
+        const data = JSON.parse(ev.data);
+        if (data.type === 'MAP_TAP' && addingPinRef.current) {
+          const coords = { latitude: data.lat, longitude: data.lng };
+          setNewPinCoords(coords);
+          setEditingPin({
+            id: '__new__',
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            label: '',
+            color: PIN_COLORS[0].value,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
 
+  // ─── WEB: Leaflet via iframe ─────────────────────────────────────────────────
+  if (!isNative) {
     const leafletHtml = buildLeafletHTML(pins, centerLat, centerLng, addingPin);
+    const iframeSrc = `data:text/html;charset=utf-8,${encodeURIComponent(leafletHtml)}`;
 
     return (
       <View style={styles.container}>
@@ -408,15 +430,13 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
           </View>
         ) : null}
 
-        {/* Leaflet WebView map */}
+        {/* Leaflet iframe map — web only */}
         <View style={styles.mapWrapper}>
-          <WebView
-            source={{ html: leafletHtml }}
-            style={styles.map}
-            onMessage={handleWebViewMessage}
-            javaScriptEnabled
-            originWhitelist={['*']}
-            scrollEnabled={false}
+          {/* @ts-ignore — iframe is valid on web */}
+          <iframe
+            src={iframeSrc}
+            style={{ width: '100%', height: 260, border: 'none' }}
+            title="Investigation Map"
           />
         </View>
 
@@ -557,7 +577,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 4,
     borderRadius: 8,
-    overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(139,90,0,0.25)',
     backgroundColor: 'rgba(255,255,255,0.15)',
@@ -611,7 +630,7 @@ const styles = StyleSheet.create({
   },
   tapHintText: { fontSize: 10, color: '#8b3a00', fontStyle: 'italic' },
   mapWrapper: { height: 260, width: '100%' },
-  map: { flex: 1 },
+  map: { flex: 1, height: 260 },
   pinList: {
     paddingHorizontal: 10,
     paddingTop: 8,
