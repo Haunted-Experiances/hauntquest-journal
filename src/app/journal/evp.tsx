@@ -11,7 +11,7 @@ const ACTIVITY_TYPES = [
 ];
 
 export default function EVPScreen() {
-  const [tab, setTab] = useState<'recorder' | 'journal'>('recorder');
+  const [tab, setTab] = useState<'recorder' | 'journal'>('journal');
 
   return (
     <View style={{ flex: 1, backgroundColor: '#050d05' }}>
