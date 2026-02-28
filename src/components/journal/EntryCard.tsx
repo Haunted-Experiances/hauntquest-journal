@@ -9,6 +9,7 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MapPin, Clock, Trash2, ChevronDown, ChevronUp, Camera, Pencil, Check, X, Users, Radio, FileText } from 'lucide-react-native';
@@ -35,7 +36,18 @@ const INTENSITIES = ['Low', 'Medium', 'High', 'Extreme'];
 async function uploadImage(uri: string, filename: string, mimeType: string): Promise<string> {
   const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
   const formData = new FormData();
-  formData.append('file', { uri, type: mimeType, name: filename } as unknown as Blob);
+
+  if (typeof document !== 'undefined') {
+    // Web: fetch the blob from the local object URL, then append as File
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    const file = new File([blob], filename, { type: mimeType });
+    formData.append('file', file);
+  } else {
+    // Native: use React Native FormData format
+    formData.append('file', { uri, type: mimeType, name: filename } as unknown as Blob);
+  }
+
   const response = await fetch(`${BACKEND_URL}/api/upload`, { method: 'POST', body: formData });
   const data = await response.json() as { data?: { url: string }; error?: string };
   if (!response.ok) throw new Error(data.error ?? 'Upload failed');
@@ -94,7 +106,7 @@ export function EntryCard({ entry, index, onDelete, activityTypes }: EntryCardPr
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') { Alert.alert('Permission Required', 'Please allow photo library access.'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8, allowsEditing: true });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'livePhotos'] as any, quality: 0.8, allowsEditing: Platform.OS !== 'web' });
     if (result.canceled) return;
     const asset = result.assets[0];
     setUploadingImage(true);

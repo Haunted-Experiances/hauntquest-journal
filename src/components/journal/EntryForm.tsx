@@ -8,6 +8,7 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -63,7 +64,18 @@ function getCurrentTime(): string {
 async function uploadImageToBackend(uri: string, filename: string, mimeType: string): Promise<string> {
   const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
   const formData = new FormData();
-  formData.append('file', { uri, type: mimeType, name: filename } as unknown as Blob);
+
+  if (typeof document !== 'undefined') {
+    // Web: fetch the blob from the local object URL, then append as File
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    const file = new File([blob], filename, { type: mimeType });
+    formData.append('file', file);
+  } else {
+    // Native: use React Native FormData format
+    formData.append('file', { uri, type: mimeType, name: filename } as unknown as Blob);
+  }
+
   const response = await fetch(`${BACKEND_URL}/api/upload`, { method: 'POST', body: formData });
   const data = await response.json() as { data?: { url: string }; error?: string };
   if (!response.ok) throw new Error(data.error ?? 'Upload failed');
@@ -125,9 +137,9 @@ export function EntryForm({ category, activityTypes }: EntryFormProps) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images', 'livePhotos'] as any,
       quality: 0.8,
-      allowsEditing: true,
+      allowsEditing: Platform.OS !== 'web',
     });
     if (result.canceled) return;
     const asset = result.assets[0];
