@@ -39,12 +39,14 @@ export function EVPRecorder() {
   const [meterLevel, setMeterLevel] = useState<number>(0);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [recordingDuration, setRecordingDuration] = useState<number>(0);
+  const [listOpen, setListOpen] = useState<boolean>(true);
 
   const recorderRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const meterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordPulse = useRef(new Animated.Value(1)).current;
+  const dropdownRotate = useRef(new Animated.Value(1)).current;
 
   // 20 Animated bars for EQ visualizer
   const eqBars = useRef<Animated.Value[]>(
@@ -323,6 +325,17 @@ export function EVPRecorder() {
     }
   }, [isPlaying]);
 
+  const toggleList = useCallback(() => {
+    const next = !listOpen;
+    setListOpen(next);
+    Animated.timing(dropdownRotate, {
+      toValue: next ? 1 : 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+    Haptics.selectionAsync();
+  }, [listOpen, dropdownRotate]);
+
   const formatDuration = (ms: number): string => {
     const totalSec = Math.floor(ms / 1000);
     const m = Math.floor(totalSec / 60);
@@ -494,125 +507,137 @@ export function EVPRecorder() {
           </View>
         </View>
 
-        {/* Recordings List */}
+        {/* Recordings List — collapsible dropdown */}
         <View style={styles.recordingsSection}>
-          <View style={styles.recordingsHeader}>
-            <Text style={styles.recordingsTitle}>CAPTURED EVIDENCE</Text>
-            <Text style={styles.recordingsCount}>{recordings.length} FILE{recordings.length !== 1 ? 'S' : ''}</Text>
-          </View>
-
-          {recordings.length === 0 ? (
-            <View style={styles.emptyState} testID="evp-empty-state">
-              <Text style={styles.emptyStateText}>NO RECORDINGS CAPTURED</Text>
-              <Text style={styles.emptyStateSubtext}>Begin recording to detect EVP phenomena</Text>
+          {/* Dropdown header */}
+          <Pressable onPress={toggleList} style={styles.recordingsHeader} testID="evp-list-toggle">
+            <View style={styles.recordingsHeaderLeft}>
+              <Text style={styles.recordingsTitle}>CAPTURED EVIDENCE</Text>
+              <View style={styles.recordingsBadge}>
+                <Text style={styles.recordingsBadgeText}>{recordings.length}</Text>
+              </View>
             </View>
-          ) : (
-            recordings.map(rec => {
-              const isThisPlaying = playingId === rec.id;
-              const progress =
-                isThisPlaying && playbackDuration > 0
-                  ? playbackPosition / playbackDuration
-                  : 0;
+            <Animated.View style={{
+              transform: [{
+                rotate: dropdownRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] })
+              }]
+            }}>
+              <Text style={styles.dropdownArrow}>▼</Text>
+            </Animated.View>
+          </Pressable>
 
-              return (
-                <View key={rec.id} style={styles.recordingItem} testID={`recording-item-${rec.id}`}>
-                  <LinearGradient
-                    colors={['rgba(0,35,12,0.9)', 'rgba(0,20,7,0.95)']}
-                    style={styles.recordingItemGradient}
-                  >
-                    {/* Recording info row */}
-                    <View style={styles.recordingInfoRow}>
-                      <View style={styles.recordingNameCol}>
-                        <Text style={styles.recordingName} numberOfLines={1}>
-                          {rec.name}
-                        </Text>
-                        <Text style={styles.recordingMeta}>
-                          {formatDuration(rec.duration)} — {new Date(rec.createdAt).toLocaleTimeString()}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Controls row */}
-                    <View style={styles.controlsRow}>
-                      {/* Rewind */}
-                      <Pressable
-                        onPress={isThisPlaying ? rewind : undefined}
-                        testID={`rew-button-${rec.id}`}
-                        style={[styles.controlBtn, !isThisPlaying && styles.controlBtnDisabled]}
-                      >
-                        <Rewind size={16} color={isThisPlaying ? '#00ff88' : '#2a6040'} />
-                      </Pressable>
-
-                      {/* Play/Pause */}
-                      <Pressable
-                        onPress={() => playRecording(rec)}
-                        testID={`play-button-${rec.id}`}
-                        style={styles.playBtn}
-                      >
-                        <LinearGradient
-                          colors={
-                            isThisPlaying && isPlaying
-                              ? ['#00aa55', '#00ff88', '#00cc66']
-                              : ['#004422', '#006633', '#005528']
-                          }
-                          style={styles.playBtnGradient}
-                        >
-                          {isThisPlaying && isPlaying ? (
-                            <Pause size={18} color="#000" fill="#000" />
-                          ) : (
-                            <Play size={18} color="#00ff88" fill="#00ff88" />
-                          )}
-                        </LinearGradient>
-                      </Pressable>
-
-                      {/* Fast Forward */}
-                      <Pressable
-                        onPress={isThisPlaying ? fastForward : undefined}
-                        testID={`ff-button-${rec.id}`}
-                        style={[styles.controlBtn, !isThisPlaying && styles.controlBtnDisabled]}
-                      >
-                        <FastForward size={16} color={isThisPlaying ? '#00ff88' : '#2a6040'} />
-                      </Pressable>
-
-                      {/* Spacer */}
-                      <View style={{ flex: 1 }} />
-
-                      {/* Delete */}
-                      <Pressable
-                        onPress={() => deleteRecording(rec.id)}
-                        testID={`delete-button-${rec.id}`}
-                        style={styles.deleteBtn}
-                      >
-                        <Trash2 size={16} color="#ff4040" />
-                      </Pressable>
-                    </View>
-
-                    {/* Progress bar */}
-                    <View style={styles.progressBarContainer}>
-                      <View style={styles.progressBarBg}>
-                        <View
-                          style={[
-                            styles.progressBarFill,
-                            { width: `${progress * 100}%` as any },
-                          ]}
-                        />
-                      </View>
-                      {isThisPlaying ? (
-                        <View style={styles.progressTimeRow}>
-                          <Text style={styles.progressTime}>
-                            {formatDuration(playbackPosition)}
-                          </Text>
-                          <Text style={styles.progressTime}>
-                            {formatDuration(playbackDuration || rec.duration)}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </LinearGradient>
+          {/* Dropdown content */}
+          {listOpen ? (
+            <View style={styles.dropdownContent}>
+              {recordings.length === 0 ? (
+                <View style={styles.emptyState} testID="evp-empty-state">
+                  <Text style={styles.emptyStateText}>NO RECORDINGS CAPTURED</Text>
+                  <Text style={styles.emptyStateSubtext}>Begin recording to detect EVP phenomena</Text>
                 </View>
-              );
-            })
-          )}
+              ) : (
+                recordings.map(rec => {
+                  const isThisPlaying = playingId === rec.id;
+                  const progress =
+                    isThisPlaying && playbackDuration > 0
+                      ? playbackPosition / playbackDuration
+                      : 0;
+
+                  return (
+                    <View key={rec.id} style={styles.recordingItem} testID={`recording-item-${rec.id}`}>
+                      <LinearGradient
+                        colors={['rgba(0,35,12,0.9)', 'rgba(0,20,7,0.95)']}
+                        style={styles.recordingItemGradient}
+                      >
+                        {/* Recording info row */}
+                        <View style={styles.recordingInfoRow}>
+                          <View style={styles.recordingNameCol}>
+                            <Text style={styles.recordingName} numberOfLines={1}>
+                              {rec.name}
+                            </Text>
+                            <Text style={styles.recordingMeta}>
+                              {formatDuration(rec.duration)} — {new Date(rec.createdAt).toLocaleTimeString()}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Controls row */}
+                        <View style={styles.controlsRow}>
+                          <Pressable
+                            onPress={isThisPlaying ? rewind : undefined}
+                            testID={`rew-button-${rec.id}`}
+                            style={[styles.controlBtn, !isThisPlaying && styles.controlBtnDisabled]}
+                          >
+                            <Rewind size={16} color={isThisPlaying ? '#00ff88' : '#2a6040'} />
+                          </Pressable>
+
+                          <Pressable
+                            onPress={() => playRecording(rec)}
+                            testID={`play-button-${rec.id}`}
+                            style={styles.playBtn}
+                          >
+                            <LinearGradient
+                              colors={
+                                isThisPlaying && isPlaying
+                                  ? ['#00aa55', '#00ff88', '#00cc66']
+                                  : ['#004422', '#006633', '#005528']
+                              }
+                              style={styles.playBtnGradient}
+                            >
+                              {isThisPlaying && isPlaying ? (
+                                <Pause size={18} color="#000" fill="#000" />
+                              ) : (
+                                <Play size={18} color="#00ff88" fill="#00ff88" />
+                              )}
+                            </LinearGradient>
+                          </Pressable>
+
+                          <Pressable
+                            onPress={isThisPlaying ? fastForward : undefined}
+                            testID={`ff-button-${rec.id}`}
+                            style={[styles.controlBtn, !isThisPlaying && styles.controlBtnDisabled]}
+                          >
+                            <FastForward size={16} color={isThisPlaying ? '#00ff88' : '#2a6040'} />
+                          </Pressable>
+
+                          <View style={{ flex: 1 }} />
+
+                          <Pressable
+                            onPress={() => deleteRecording(rec.id)}
+                            testID={`delete-button-${rec.id}`}
+                            style={styles.deleteBtn}
+                          >
+                            <Trash2 size={16} color="#ff4040" />
+                          </Pressable>
+                        </View>
+
+                        {/* Progress bar */}
+                        <View style={styles.progressBarContainer}>
+                          <View style={styles.progressBarBg}>
+                            <View
+                              style={[
+                                styles.progressBarFill,
+                                { width: `${progress * 100}%` as any },
+                              ]}
+                            />
+                          </View>
+                          {isThisPlaying ? (
+                            <View style={styles.progressTimeRow}>
+                              <Text style={styles.progressTime}>
+                                {formatDuration(playbackPosition)}
+                              </Text>
+                              <Text style={styles.progressTime}>
+                                {formatDuration(playbackDuration || rec.duration)}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </LinearGradient>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          ) : null}
         </View>
 
         {/* Footer */}
@@ -879,18 +904,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,255,136,0.2)',
+    backgroundColor: 'rgba(0,25,10,0.8)',
+    marginBottom: 0,
+  },
+  recordingsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recordingsBadge: {
+    backgroundColor: 'rgba(0,255,136,0.2)',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(0,255,136,0.35)',
+  },
+  recordingsBadgeText: {
+    color: '#00ff88',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  dropdownArrow: {
+    color: '#00ff88',
+    fontSize: 11,
+  },
+  dropdownContent: {
+    marginTop: 6,
   },
   recordingsTitle: {
     color: '#00cc66',
     fontSize: 11,
     letterSpacing: 3,
     fontWeight: '700',
-  },
-  recordingsCount: {
-    color: '#2a6a3a',
-    fontSize: 10,
-    letterSpacing: 2,
   },
   emptyState: {
     padding: 32,
