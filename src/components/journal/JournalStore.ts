@@ -51,12 +51,16 @@ interface JournalState {
   backgroundImageUrl: string | null;
   savedBackgrounds: string[];
   evpRecordings: EVPRecording[];
+  categoryMaps: Record<string, MapPin[]>;
   addEntry: (entry: JournalEntry) => void;
   deleteEntry: (id: string) => void;
   updateEntry: (id: string, updates: Partial<Omit<JournalEntry, 'id' | 'category' | 'createdAt'>>) => void;
   addPin: (entryId: string, pin: MapPin) => void;
   updatePin: (entryId: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => void;
   deletePin: (entryId: string, pinId: string) => void;
+  addCategoryPin: (category: string, pin: MapPin) => void;
+  updateCategoryPin: (category: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => void;
+  deleteCategoryPin: (category: string, pinId: string) => void;
   setBackgroundImageUrl: (url: string) => void;
   addSavedBackground: (url: string) => void;
   removeSavedBackground: (url: string) => void;
@@ -73,6 +77,7 @@ export const useJournalStore = create<JournalState>()(
       backgroundImageUrl: null,
       savedBackgrounds: [],
       evpRecordings: [],
+      categoryMaps: {},
 
       addEntry: (entry: JournalEntry) => {
         set((state) => ({ entries: [entry, ...state.entries] }));
@@ -170,6 +175,35 @@ export const useJournalStore = create<JournalState>()(
               ? { ...e, pins: (e.pins ?? []).filter((p) => p.id !== pinId) }
               : e
           ),
+        }));
+      },
+
+      addCategoryPin: (category: string, pin: MapPin) => {
+        set((state) => ({
+          categoryMaps: {
+            ...state.categoryMaps,
+            [category]: [...(state.categoryMaps[category] ?? []), pin],
+          },
+        }));
+      },
+
+      updateCategoryPin: (category: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => {
+        set((state) => ({
+          categoryMaps: {
+            ...state.categoryMaps,
+            [category]: (state.categoryMaps[category] ?? []).map((p) =>
+              p.id === pinId ? { ...p, ...updates } : p
+            ),
+          },
+        }));
+      },
+
+      deleteCategoryPin: (category: string, pinId: string) => {
+        set((state) => ({
+          categoryMaps: {
+            ...state.categoryMaps,
+            [category]: (state.categoryMaps[category] ?? []).filter((p) => p.id !== pinId),
+          },
         }));
       },
 

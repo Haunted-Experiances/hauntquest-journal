@@ -25,6 +25,7 @@ import { JournalCategory, JournalEntry, useJournalStore } from './JournalStore';
 import { EntryCard } from './EntryCard';
 import { EntryForm } from './EntryForm';
 import { CSVExport } from './CSVExport';
+import { CategoryMapView } from './CategoryMapView';
 
 interface JournalTabProps {
   category: JournalCategory;
@@ -33,6 +34,7 @@ interface JournalTabProps {
   folderImage: string;
   activityTypes: string[];
   footerExtra?: React.ReactNode;
+  showMap?: boolean;
 }
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -44,6 +46,7 @@ export function JournalTab({
   folderImage,
   activityTypes,
   footerExtra,
+  showMap = true,
 }: JournalTabProps) {
   const [cinzelLoaded] = useCinzelFonts({ Cinzel_700Bold, Cinzel_900Black });
   const [garamondLoaded] = useGaramondFonts({ EBGaramond_400Regular, EBGaramond_700Bold });
@@ -102,6 +105,22 @@ export function JournalTab({
           </Text>
         </LinearGradient>
       </View>
+
+      {/* Investigation Map section */}
+      {showMap ? (
+        <View style={styles.mapSection}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionLine} />
+            <Text style={[styles.sectionTitle, { fontFamily: bodyBoldFont }]}>
+              INVESTIGATION MAP
+            </Text>
+            <View style={styles.sectionLine} />
+          </View>
+          <View style={styles.mapContainer}>
+            <CategoryMapView category={category} />
+          </View>
+        </View>
+      ) : null}
 
       {/* Section header */}
       <View style={styles.sectionHeader}>
@@ -361,5 +380,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 10,
     marginBottom: 8,
+  },
+  mapSection: {
+    marginBottom: 8,
+  },
+  mapContainer: {
+    marginHorizontal: 16,
   },
 });
