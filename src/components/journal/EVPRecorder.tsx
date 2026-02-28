@@ -448,7 +448,7 @@ export function EVPRecorder() {
               {isRecording
                 ? `CAPTURING — METER: ${Math.round(meterLevel * 100)}%`
                 : isPlaying
-                ? 'ANALYSING WAVEFORM'
+                ? `PLAYING AT ${playbackRate}x`
                 : 'STANDBY — AWAITING SIGNAL'}
             </Text>
           </LinearGradient>
@@ -527,7 +527,7 @@ export function EVPRecorder() {
 
         {/* Speed Controls */}
         <View style={styles.speedSection}>
-          <Text style={styles.speedLabel}>ANALYSIS SPEED</Text>
+          <Text style={styles.speedLabel}>PLAYBACK SPEED</Text>
           <View style={styles.speedButtons}>
             {SPEEDS.map(speed => (
               <Pressable
