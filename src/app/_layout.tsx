@@ -23,6 +23,11 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="journal/real-hauntings" options={{ headerShown: false }} />
+        <Stack.Screen name="journal/poltergeist" options={{ headerShown: false }} />
+        <Stack.Screen name="journal/ghost-sightings" options={{ headerShown: false }} />
+        <Stack.Screen name="journal/evp" options={{ headerShown: false }} />
+        <Stack.Screen name="journal/emf" options={{ headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );
