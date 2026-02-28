@@ -5,9 +5,10 @@ import {
   Pressable,
   StyleSheet,
   Alert,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MapPin, Clock, Trash2, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { MapPin, Clock, Trash2, ChevronDown, ChevronUp, Camera } from 'lucide-react-native';
 import { JournalEntry } from './JournalStore';
 
 interface EntryCardProps {
@@ -117,6 +118,21 @@ export function EntryCard({ entry, index, onDelete }: EntryCardProps) {
               <View style={styles.expandedRow}>
                 <Text style={styles.expandedLabel}>Notes</Text>
                 <Text style={styles.expandedValue}>{entry.notes}</Text>
+              </View>
+            ) : null}
+
+            {/* Evidence Photo */}
+            {entry.imageUrl ? (
+              <View style={styles.evidencePhotoContainer}>
+                <View style={styles.evidencePhotoHeader}>
+                  <Camera size={12} color="#7a5c2e" />
+                  <Text style={styles.evidencePhotoLabel}>EVIDENCE PHOTO</Text>
+                </View>
+                <Image
+                  source={{ uri: entry.imageUrl }}
+                  style={styles.evidencePhoto}
+                  resizeMode="cover"
+                />
               </View>
             ) : null}
 
@@ -306,5 +322,31 @@ const styles = StyleSheet.create({
   expandToggle: {
     alignItems: 'center',
     marginTop: 8,
+  },
+  evidencePhotoContainer: {
+    marginTop: 8,
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 90, 0, 0.3)',
+  },
+  evidencePhotoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(139, 90, 0, 0.1)',
+  },
+  evidencePhotoLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#7a5c2e',
+    letterSpacing: 1.5,
+  },
+  evidencePhoto: {
+    width: '100%',
+    height: 160,
+    backgroundColor: '#d4c090',
   },
 });

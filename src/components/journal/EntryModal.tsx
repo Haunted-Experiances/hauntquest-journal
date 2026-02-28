@@ -6,13 +6,15 @@ import {
   Pressable,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import BottomSheet, { BottomSheetScrollView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { X, MapPin, Clock, FileText, Users, Radio } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { X, MapPin, Clock, FileText, Users, Radio, Camera, Image as ImageIcon, CheckCircle } from 'lucide-react-native';
 import { JournalCategory, JournalEntry, useJournalStore } from './JournalStore';
 
 interface EntryModalProps {
@@ -47,6 +49,21 @@ function getCurrentTime(): string {
   return `${h}:${m}`;
 }
 
+async function uploadImageToBackend(uri: string, filename: string, mimeType: string): Promise<string> {
+  const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
+  const formData = new FormData();
+  formData.append('file', { uri, type: mimeType, name: filename } as unknown as Blob);
+
+  const response = await fetch(`${BACKEND_URL}/api/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await response.json() as { data?: { url: string }; error?: string };
+  if (!response.ok) throw new Error(data.error ?? 'Upload failed');
+  return data.data!.url;
+}
+
 export function EntryModal({ visible, category, activityTypes, onClose }: EntryModalProps) {
   const addEntry = useJournalStore((s) => s.addEntry);
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -60,6 +77,11 @@ export function EntryModal({ visible, category, activityTypes, onClose }: EntryM
   const [witnesses, setWitnesses] = useState('');
   const [equipment, setEquipment] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Image state
+  const [localImageUri, setLocalImageUri] = useState<string | null>(null);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const snapPoints = ['90%'];
 
@@ -80,6 +102,85 @@ export function EntryModal({ visible, category, activityTypes, onClose }: EntryM
     setWitnesses('');
     setEquipment('');
     setNotes('');
+    setLocalImageUri(null);
+    setUploadedImageUrl(null);
+    setIsUploading(false);
+  };
+
+  const handlePickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please allow access to your photo library to attach evidence images.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+    });
+
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    const uri = asset.uri;
+    const filename = asset.fileName ?? `evidence-${Date.now()}.jpg`;
+    const mimeType = asset.mimeType ?? 'image/jpeg';
+
+    setLocalImageUri(uri);
+    setUploadedImageUrl(null);
+    setIsUploading(true);
+
+    try {
+      const url = await uploadImageToBackend(uri, filename, mimeType);
+      setUploadedImageUrl(url);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (err) {
+      Alert.alert('Upload Failed', 'Could not upload the image. It will not be saved with the entry.');
+      setLocalImageUri(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please allow camera access to capture evidence photos.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+      allowsEditing: true,
+    });
+
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    const uri = asset.uri;
+    const filename = asset.fileName ?? `evidence-${Date.now()}.jpg`;
+    const mimeType = asset.mimeType ?? 'image/jpeg';
+
+    setLocalImageUri(uri);
+    setUploadedImageUrl(null);
+    setIsUploading(true);
+
+    try {
+      const url = await uploadImageToBackend(uri, filename, mimeType);
+      setUploadedImageUrl(url);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (err) {
+      Alert.alert('Upload Failed', 'Could not upload the image. It will not be saved with the entry.');
+      setLocalImageUri(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setLocalImageUri(null);
+    setUploadedImageUrl(null);
   };
 
   const handleSave = () => {
@@ -95,6 +196,7 @@ export function EntryModal({ visible, category, activityTypes, onClose }: EntryM
       witnesses,
       equipment,
       notes,
+      imageUrl: uploadedImageUrl ?? undefined,
       createdAt: new Date().toISOString(),
     };
     addEntry(entry);
@@ -315,15 +417,56 @@ export function EntryModal({ visible, category, activityTypes, onClose }: EntryM
             </View>
           </View>
 
+          {/* Evidence Photo */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>EVIDENCE PHOTO</Text>
+
+            {localImageUri ? (
+              <View style={styles.imagePreviewContainer}>
+                <Image source={{ uri: localImageUri }} style={styles.imagePreview} resizeMode="cover" />
+
+                {/* Upload status overlay */}
+                {isUploading ? (
+                  <View style={styles.imageOverlay}>
+                    <ActivityIndicator color="#f5e4bb" size="small" />
+                    <Text style={styles.imageOverlayText}>Uploading...</Text>
+                  </View>
+                ) : uploadedImageUrl ? (
+                  <View style={styles.imageSuccessBadge}>
+                    <CheckCircle size={14} color="#4caf50" />
+                    <Text style={styles.imageSuccessText}>Saved</Text>
+                  </View>
+                ) : null}
+
+                <Pressable style={styles.removeImageButton} onPress={handleRemoveImage}>
+                  <X size={14} color="#fff" />
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.imagePickerRow}>
+                <Pressable style={styles.imagePickerButton} onPress={handlePickImage}>
+                  <ImageIcon size={18} color="#7a5c2e" />
+                  <Text style={styles.imagePickerButtonText}>Choose Photo</Text>
+                </Pressable>
+                <Pressable style={styles.imagePickerButton} onPress={handleTakePhoto}>
+                  <Camera size={18} color="#7a5c2e" />
+                  <Text style={styles.imagePickerButtonText}>Take Photo</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+
           {/* Save Button */}
-          <Pressable onPress={handleSave} testID="save-entry-button">
+          <Pressable onPress={handleSave} disabled={isUploading} testID="save-entry-button">
             <LinearGradient
-              colors={['#4a1a00', '#8b3a00', '#5c2200']}
+              colors={isUploading ? ['#7a6040', '#8a7050', '#7a6040'] : ['#4a1a00', '#8b3a00', '#5c2200']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
-              style={styles.saveButton}
+              style={[styles.saveButton, isUploading && styles.saveButtonDisabled]}
             >
-              <Text style={styles.saveButtonText}>SEAL THE RECORD</Text>
+              <Text style={styles.saveButtonText}>
+                {isUploading ? 'UPLOADING PHOTO...' : 'SEAL THE RECORD'}
+              </Text>
             </LinearGradient>
           </Pressable>
 
@@ -459,6 +602,84 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.5,
   },
+  // Image styles
+  imagePickerRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  imagePickerButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 90, 0, 0.25)',
+    borderStyle: 'dashed',
+  },
+  imagePickerButtonText: {
+    fontSize: 12,
+    color: '#7a5c2e',
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(139, 90, 0, 0.4)',
+  },
+  imagePreview: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#d4c090',
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  imageOverlayText: {
+    color: '#f5e4bb',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  imageSuccessBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  imageSuccessText: {
+    color: '#4caf50',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 14,
+    padding: 5,
+  },
   saveButton: {
     marginTop: 8,
     borderRadius: 10,
@@ -469,6 +690,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 8,
+  },
+  saveButtonDisabled: {
+    opacity: 0.7,
   },
   saveButtonText: {
     fontSize: 15,

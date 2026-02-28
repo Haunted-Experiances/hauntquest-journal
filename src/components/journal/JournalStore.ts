@@ -21,6 +21,7 @@ export interface JournalEntry {
   witnesses: string;
   equipment: string;
   notes: string;
+  imageUrl?: string;
   createdAt: string;
 }
 
@@ -65,6 +66,7 @@ export const useJournalStore = create<JournalState>()(
           'Witnesses',
           'Equipment',
           'Notes',
+          'Image URL',
         ];
         const rows = entries.map((e) => [
           e.date,
@@ -76,6 +78,7 @@ export const useJournalStore = create<JournalState>()(
           e.witnesses,
           e.equipment,
           e.notes,
+          e.imageUrl ?? '',
         ]);
         return [headers, ...rows]
           .map((row) =>
