@@ -30,6 +30,7 @@ export function EVPRecorder() {
   const [fontsLoaded] = useFonts({ Cinzel_900Black });
 
   const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
   const [recordings, setRecordings] = useState<EVPRecording[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -202,6 +203,7 @@ export function EVPRecorder() {
 
       recorderRef.current = null;
       setIsRecording(false);
+      setIsPaused(false);
       setMeterLevel(0);
       stopPulse();
 
@@ -237,6 +239,25 @@ export function EVPRecorder() {
       startRecording();
     }
   }, [isRecording, startRecording, stopRecording]);
+
+  const handlePausePress = useCallback(async () => {
+    if (!recorderRef.current || !isRecording) return;
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (isPaused) {
+      await recorderRef.current.startAsync();
+      setIsPaused(false);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      await recorderRef.current.pauseAsync();
+      setIsPaused(true);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+    }
+  }, [isRecording, isPaused]);
 
   const playRecording = useCallback(async (rec: EVPRecording) => {
     try {
@@ -433,37 +454,61 @@ export function EVPRecorder() {
           </LinearGradient>
         </View>
 
-        {/* Record Button */}
+        {/* Record Button + Pause Button */}
         <View style={styles.recordSection}>
-          <Animated.View style={{ transform: [{ scale: recordPulse }] }}>
-            <Pressable
-              onPress={handleRecordPress}
-              testID="evp-record-button"
-              style={styles.recordButtonOuter}
-            >
-              <LinearGradient
-                colors={
-                  isRecording
-                    ? ['#8b0000', '#ff2020', '#cc0000']
-                    : ['#2d0a0a', '#500a0a', '#3a0808']
-                }
-                style={styles.recordButtonGradient}
-              >
-                <View
-                  style={[
-                    styles.recordButtonInner,
-                    isRecording && styles.recordButtonInnerActive,
-                  ]}
+          <View style={styles.recordRow}>
+            {/* Pause/Resume button — only visible while recording */}
+            {isRecording ? (
+              <Pressable onPress={handlePausePress} style={styles.pauseButton} testID="evp-pause-button">
+                <LinearGradient
+                  colors={isPaused ? ['#004422', '#00aa55'] : ['#1a1a00', '#6b6b00']}
+                  style={styles.pauseButtonGradient}
                 >
-                  {isRecording ? (
-                    <Square size={28} color="#ffffff" fill="#ffffff" />
+                  {isPaused ? (
+                    <Play size={22} color="#00ff88" fill="#00ff88" />
                   ) : (
-                    <Mic size={28} color="#ff4444" />
+                    <Pause size={22} color="#ffdd00" fill="#ffdd00" />
                   )}
-                </View>
-              </LinearGradient>
-            </Pressable>
-          </Animated.View>
+                </LinearGradient>
+              </Pressable>
+            ) : (
+              <View style={styles.pausePlaceholder} />
+            )}
+
+            {/* Record / Stop button */}
+            <Animated.View style={{ transform: [{ scale: recordPulse }] }}>
+              <Pressable
+                onPress={handleRecordPress}
+                testID="evp-record-button"
+                style={styles.recordButtonOuter}
+              >
+                <LinearGradient
+                  colors={
+                    isRecording
+                      ? ['#8b0000', '#ff2020', '#cc0000']
+                      : ['#2d0a0a', '#500a0a', '#3a0808']
+                  }
+                  style={styles.recordButtonGradient}
+                >
+                  <View
+                    style={[
+                      styles.recordButtonInner,
+                      isRecording && styles.recordButtonInnerActive,
+                    ]}
+                  >
+                    {isRecording ? (
+                      <Square size={28} color="#ffffff" fill="#ffffff" />
+                    ) : (
+                      <Mic size={28} color="#ff4444" />
+                    )}
+                  </View>
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
+
+            {/* Spacer to balance layout */}
+            <View style={styles.pausePlaceholder} />
+          </View>
 
           {/* Status text */}
           <View style={styles.statusRow}>
@@ -781,6 +826,34 @@ const styles = StyleSheet.create({
   recordSection: {
     alignItems: 'center',
     marginBottom: 28,
+  },
+  recordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+  },
+  pauseButton: {
+    borderRadius: 30,
+    overflow: 'hidden',
+    shadowColor: '#ffdd00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  pauseButtonGradient: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,220,0,0.35)',
+  },
+  pausePlaceholder: {
+    width: 60,
+    height: 60,
   },
   recordButtonOuter: {
     borderRadius: 50,
