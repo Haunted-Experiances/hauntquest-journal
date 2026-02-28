@@ -27,8 +27,10 @@ export interface JournalEntry {
 
 interface JournalState {
   entries: JournalEntry[];
+  backgroundImageUrl: string | null;
   addEntry: (entry: JournalEntry) => void;
   deleteEntry: (id: string) => void;
+  setBackgroundImageUrl: (url: string) => void;
   getEntriesByCategory: (category: JournalCategory) => JournalEntry[];
   exportToCSV: (category: JournalCategory) => string;
 }
@@ -37,17 +39,18 @@ export const useJournalStore = create<JournalState>()(
   persist(
     (set, get) => ({
       entries: [],
+      backgroundImageUrl: null,
 
       addEntry: (entry: JournalEntry) => {
-        set((state) => ({
-          entries: [entry, ...state.entries],
-        }));
+        set((state) => ({ entries: [entry, ...state.entries] }));
       },
 
       deleteEntry: (id: string) => {
-        set((state) => ({
-          entries: state.entries.filter((e) => e.id !== id),
-        }));
+        set((state) => ({ entries: state.entries.filter((e) => e.id !== id) }));
+      },
+
+      setBackgroundImageUrl: (url: string) => {
+        set({ backgroundImageUrl: url });
       },
 
       getEntriesByCategory: (category: JournalCategory): JournalEntry[] => {

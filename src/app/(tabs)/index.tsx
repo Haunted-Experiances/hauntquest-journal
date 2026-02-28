@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   Pressable,
   Dimensions,
   Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -18,21 +20,25 @@ import Animated, {
   withSequence,
   Easing,
 } from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
+import { Camera } from 'lucide-react-native';
 import {
   useFonts as useCinzelFonts,
   Cinzel_900Black,
 } from '@expo-google-fonts/cinzel';
+import { useJournalStore } from '@/components/journal/JournalStore';
 
 const { width: W, height: H } = Dimensions.get('window');
 
-const HAUNTED_HOUSE_IMAGE = 'https://images.composerapi.com/019ca3f5-28e6-762c-b019-f91b9f24805e/assets/images/1_o5mjvig_385njm507isc9w_1772279868779_019ca41c-ad6b-747f-8605-3a749504b681.webp';
+const DEFAULT_IMAGE = 'https://images.composerapi.com/019ca3f5-28e6-762c-b019-f91b9f24805e/assets/images/1_o5mjvig_385njm507isc9w_1772279868779_019ca41c-ad6b-747f-8605-3a749504b681.webp';
 
 const JOURNALS = [
-  { route: '/journal/real-hauntings',  label: 'Real Hauntings',       color: '#c8a820', emoji: '🏚️' },
-  { route: '/journal/poltergeist',     label: 'Poltergeist',          color: '#9b59b6', emoji: '⚡' },
-  { route: '/journal/ghost-sightings', label: 'Ghost Sightings',      color: '#48c9b0', emoji: '👻' },
-  { route: '/journal/evp',             label: 'EVP Evidence',         color: '#52be80', emoji: '🎙️' },
-  { route: '/journal/emf',             label: 'EMF Evidence',         color: '#e67e22', emoji: '📡' },
+  { route: '/journal/real-hauntings',  label: 'Real Hauntings',  color: '#c8a820', emoji: '🏚️' },
+  { route: '/journal/poltergeist',     label: 'Poltergeist',     color: '#9b59b6', emoji: '⚡' },
+  { route: '/journal/ghost-sightings', label: 'Ghost Sightings', color: '#48c9b0', emoji: '👻' },
+  { route: '/journal/evp',             label: 'EVP Evidence',    color: '#52be80', emoji: '🎙️' },
+  { route: '/journal/emf',             label: 'EMF Evidence',    color: '#e67e22', emoji: '📡' },
 ];
 
 function FlickerDot({ color }: { color: string }) {
@@ -60,6 +66,12 @@ export default function HomeScreen() {
   const [fontsLoaded] = useCinzelFonts({ Cinzel_900Black });
   const titleFont = fontsLoaded ? 'Cinzel_900Black' : undefined;
 
+  const backgroundImageUrl = useJournalStore((s) => s.backgroundImageUrl);
+  const setBackgroundImageUrl = useJournalStore((s) => s.setBackgroundImageUrl);
+  const [uploading, setUploading] = useState(false);
+
+  const bgImage = backgroundImageUrl ?? DEFAULT_IMAGE;
+
   // Fog drift
   const fogX = useSharedValue(-W);
   useEffect(() => {
@@ -73,13 +85,83 @@ export default function HomeScreen() {
     transform: [{ translateX: fogX.value }],
   }));
 
+  const handleChangeBackground = async () => {
+    Alert.alert(
+      'Change Background',
+      'Choose a new haunted house image',
+      [
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission Required', 'Please allow access to your photo library.');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.9,
+              allowsEditing: true,
+              aspect: [9, 16],
+            });
+            if (!result.canceled) await uploadAndSet(result.assets[0]);
+          },
+        },
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission Required', 'Please allow camera access.');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({
+              quality: 0.9,
+              allowsEditing: true,
+              aspect: [9, 16],
+            });
+            if (!result.canceled) await uploadAndSet(result.assets[0]);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const uploadAndSet = async (asset: ImagePicker.ImagePickerAsset) => {
+    setUploading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        type: asset.mimeType ?? 'image/jpeg',
+        name: asset.fileName ?? `bg-${Date.now()}.jpg`,
+      } as unknown as Blob);
+
+      const response = await fetch(`${BACKEND_URL}/api/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json() as { data?: { url: string }; error?: string };
+      if (!response.ok) throw new Error(data.error ?? 'Upload failed');
+      setBackgroundImageUrl(data.data!.url);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert('Upload Failed', 'Could not upload the image. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
 
       {/* Full-screen haunted house photo */}
       <Image
-        source={{ uri: HAUNTED_HOUSE_IMAGE }}
+        source={{ uri: bgImage }}
         style={styles.bgImage}
         resizeMode="cover"
       />
@@ -118,6 +200,20 @@ export default function HomeScreen() {
           JOURNAL
         </Text>
       </View>
+
+      {/* Change background button — top right */}
+      <Pressable
+        style={styles.changeBgBtn}
+        onPress={handleChangeBackground}
+        disabled={uploading}
+        testID="change-background-btn"
+      >
+        {uploading ? (
+          <ActivityIndicator size="small" color="#e8c870" />
+        ) : (
+          <Camera size={18} color="#e8c870" />
+        )}
+      </Pressable>
 
       {/* Journal entry buttons — bottom */}
       <View style={styles.journalRow}>
@@ -164,6 +260,16 @@ const styles = StyleSheet.create({
     left: 0,
     width: W,
     height: H,
+  },
+  changeBgBtn: {
+    position: 'absolute',
+    top: 52,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 22,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(232,200,112,0.3)',
   },
   fogLayer: {
     position: 'absolute',
