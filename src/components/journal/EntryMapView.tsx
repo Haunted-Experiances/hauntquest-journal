@@ -28,6 +28,14 @@ if (isNative) {
   Location = require('expo-location');
 }
 
+// react-native-webview for web Leaflet map
+let WebView: any = null;
+try {
+  WebView = require('react-native-webview').WebView;
+} catch {
+  WebView = null;
+}
+
 const PIN_COLORS = [
   { value: '#e53935', label: 'Red' },
   { value: '#8e24aa', label: 'Purple' },
@@ -117,6 +125,113 @@ function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
   );
 }
 
+function buildLeafletHTML(
+  pins: MapPin[],
+  centerLat: number,
+  centerLng: number,
+  addingPin: boolean,
+): string {
+  const pinsJson = JSON.stringify(
+    pins.map((p) => ({
+      id: p.id,
+      lat: p.latitude,
+      lng: p.longitude,
+      label: p.label,
+      color: p.color,
+    })),
+  );
+
+  const cursorStyle = addingPin ? 'crosshair' : 'grab';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #e8dfc8; }
+  #map { width: 100%; height: 100%; cursor: ${cursorStyle}; }
+  .custom-pin-label {
+    background: white;
+    border: 2px solid #7a5c2e;
+    border-radius: 4px;
+    padding: 2px 5px;
+    font-size: 11px;
+    font-family: Georgia, serif;
+    font-weight: 700;
+    color: #3d2600;
+    white-space: nowrap;
+    margin-top: -2px;
+  }
+  .adding-mode .leaflet-container {
+    cursor: crosshair !important;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  (function() {
+    var centerLat = ${centerLat};
+    var centerLng = ${centerLng};
+    var addingPin = ${addingPin ? 'true' : 'false'};
+    var pins = ${pinsJson};
+
+    var map = L.map('map', {
+      zoomControl: true,
+      attributionControl: false,
+    }).setView([centerLat, centerLng], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    function makeIcon(color) {
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="24" height="36">'
+        + '<path d="M12 0C7.6 0 4 3.6 4 8c0 5.4 8 18 8 18s8-12.6 8-18c0-4.4-3.6-8-8-8z" fill="' + color + '" stroke="#fff" stroke-width="1.5"/>'
+        + '<circle cx="12" cy="8" r="3" fill="#fff" opacity="0.85"/>'
+        + '</svg>';
+      return L.divIcon({
+        html: svg,
+        className: '',
+        iconSize: [24, 36],
+        iconAnchor: [12, 36],
+        popupAnchor: [0, -36],
+      });
+    }
+
+    pins.forEach(function(pin) {
+      var marker = L.marker([pin.lat, pin.lng], { icon: makeIcon(pin.color) }).addTo(map);
+      if (pin.label) {
+        marker.bindTooltip(pin.label, {
+          permanent: true,
+          direction: 'top',
+          className: 'custom-pin-label',
+          offset: [0, -4],
+        });
+      }
+    });
+
+    if (addingPin) {
+      map.getContainer().style.cursor = 'crosshair';
+    }
+
+    map.on('click', function(e) {
+      if (!addingPin) return;
+      var msg = JSON.stringify({ type: 'MAP_TAP', lat: e.latlng.lat, lng: e.latlng.lng });
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(msg);
+      }
+    });
+  })();
+</script>
+</body>
+</html>`;
+}
+
 export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude }: EntryMapViewProps) {
   const addPin = useJournalStore((s) => s.addPin);
   const updatePin = useJournalStore((s) => s.updatePin);
@@ -128,9 +243,12 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
 
+  const centerLat = initialLatitude ?? 40.7128;
+  const centerLng = initialLongitude ?? -74.006;
+
   const defaultRegion = {
-    latitude: initialLatitude ?? 40.7128,
-    longitude: initialLongitude ?? -74.006,
+    latitude: centerLat,
+    longitude: centerLng,
     latitudeDelta: 0.01,
     longitudeDelta: 0.01,
   };
@@ -172,6 +290,30 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, [addingPin]);
 
+  // Handle messages posted from the WebView Leaflet map
+  const handleWebViewMessage = useCallback((event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'MAP_TAP' && addingPin) {
+        const coords = { latitude: data.lat, longitude: data.lng };
+        setNewPinCoords(coords);
+        setEditingPin({
+          id: '__new__',
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          label: '',
+          color: PIN_COLORS[0].value,
+          createdAt: new Date().toISOString(),
+        });
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+      }
+    } catch {
+      // ignore malformed messages
+    }
+  }, [addingPin]);
+
   const handleSaveNewPin = useCallback((label: string, color: string) => {
     if (!newPinCoords) return;
     const pin: MapPin = {
@@ -183,7 +325,9 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
       createdAt: new Date().toISOString(),
     };
     addPin(entryId, pin);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
     setEditingPin(null);
     setNewPinCoords(null);
     setAddingPin(false);
@@ -197,7 +341,9 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   const handleSaveEditPin = useCallback((label: string, color: string) => {
     if (!editingPin || editingPin.id === '__new__') return;
     updatePin(entryId, editingPin.id, { label, color });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
     setEditingPin(null);
   }, [editingPin, entryId, updatePin]);
 
@@ -209,7 +355,9 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
         style: 'destructive',
         onPress: () => {
           deletePin(entryId, pinId);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
         },
       },
     ]);
@@ -217,15 +365,100 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
 
   const isNewPin = editingPin?.id === '__new__';
 
+  // ─── WEB: Leaflet via WebView ────────────────────────────────────────────────
   if (!isNative) {
+    if (!WebView) {
+      return (
+        <View style={styles.webFallback}>
+          <Map size={16} color="#9a7c4e" />
+          <Text style={styles.webFallbackText}>Map requires react-native-webview</Text>
+        </View>
+      );
+    }
+
+    const leafletHtml = buildLeafletHTML(pins, centerLat, centerLng, addingPin);
+
     return (
-      <View style={styles.webFallback}>
-        <Map size={16} color="#9a7c4e" />
-        <Text style={styles.webFallbackText}>Map available on iOS & Android</Text>
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Map size={13} color="#7a5c2e" />
+            <Text style={styles.headerTitle}>LOCATION MAP</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={[styles.addPinBtn, addingPin && styles.addPinBtnActive]}
+              onPress={() => {
+                setAddingPin((v) => !v);
+                if (addingPin) setNewPinCoords(null);
+              }}
+            >
+              {addingPin ? <X size={12} color="#8b0000" /> : <Plus size={12} color="#7a5c2e" />}
+              <Text style={[styles.addPinText, addingPin && styles.addPinTextActive]}>
+                {addingPin ? 'Cancel' : 'Add Pin'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {addingPin ? (
+          <View style={styles.tapHint}>
+            <MapPinIcon size={11} color="#8b3a00" />
+            <Text style={styles.tapHintText}>Tap anywhere on the map to place a pin</Text>
+          </View>
+        ) : null}
+
+        {/* Leaflet WebView map */}
+        <View style={styles.mapWrapper}>
+          <WebView
+            source={{ html: leafletHtml }}
+            style={styles.map}
+            onMessage={handleWebViewMessage}
+            javaScriptEnabled
+            originWhitelist={['*']}
+            scrollEnabled={false}
+          />
+        </View>
+
+        {/* Pin list */}
+        {pins.length > 0 ? (
+          <View style={styles.pinList}>
+            <Text style={styles.pinListTitle}>PINS ({pins.length})</Text>
+            <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              {pins.map((pin) => (
+                <View key={pin.id} style={styles.pinRow}>
+                  <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
+                  <View style={styles.pinInfo}>
+                    <Text style={styles.pinLabel}>{pin.label}</Text>
+                    <Text style={styles.pinCoords}>
+                      {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
+                    </Text>
+                  </View>
+                  <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
+                    <Pencil size={11} color="#7a5c2e" />
+                  </Pressable>
+                  <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin.id)}>
+                    <Trash2 size={11} color="#8b0000" />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {/* Edit Modal */}
+        <PinEditModal
+          visible={editingPin !== null}
+          pin={editingPin}
+          onSave={isNewPin ? handleSaveNewPin : handleSaveEditPin}
+          onCancel={() => { setEditingPin(null); setNewPinCoords(null); }}
+        />
       </View>
     );
   }
 
+  // ─── NATIVE: react-native-maps ───────────────────────────────────────────────
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -260,7 +493,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
         </View>
       ) : null}
 
-      {/* Map */}
+      {/* Native Map */}
       <View style={styles.mapWrapper}>
         <MapView
           ref={mapRef}
