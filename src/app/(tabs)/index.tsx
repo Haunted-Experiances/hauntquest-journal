@@ -8,6 +8,7 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -87,6 +88,17 @@ export default function HomeScreen() {
   }));
 
   const handleChangeBackground = async () => {
+    // On web, Alert.alert is a no-op — go straight to picker
+    if (Platform.OS === 'web') {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'] as any,
+        quality: 0.9,
+        allowsEditing: false,
+      });
+      if (!result.canceled) await uploadAndSet(result.assets[0]);
+      return;
+    }
+
     Alert.alert(
       'Change Background',
       'Choose a new haunted house image',
@@ -100,7 +112,7 @@ export default function HomeScreen() {
               return;
             }
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: ['images'] as any,
               quality: 0.9,
               allowsEditing: true,
               aspect: [9, 16],
