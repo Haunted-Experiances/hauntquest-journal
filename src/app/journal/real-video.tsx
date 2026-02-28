@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { JournalTab } from '@/components/journal/JournalTab';
@@ -13,26 +13,14 @@ const ACTIVITY_TYPES = [
 export default function RealVideoScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#0a0000' }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        nestedScrollEnabled
-      >
-        {/* Real Video Journal */}
-        <View style={styles.journalSection}>
-          <JournalTab
-            category="real-video"
-            title="Real Video"
-            folderColor="#4a0000"
-            folderImage="📹"
-            activityTypes={ACTIVITY_TYPES}
-          />
-        </View>
-
-        {/* Video Recorder below */}
-        <VideoRecorder />
-      </ScrollView>
+      <JournalTab
+        category="real-video"
+        title="Real Video"
+        folderColor="#4a0000"
+        folderImage="📹"
+        activityTypes={ACTIVITY_TYPES}
+        footerExtra={<VideoRecorder />}
+      />
 
       {/* Back button */}
       <Pressable style={styles.backBtn} onPress={() => router.back()} testID="back-button">
@@ -43,9 +31,6 @@ export default function RealVideoScreen() {
 }
 
 const styles = StyleSheet.create({
-  journalSection: {
-    minHeight: 500,
-  },
   backBtn: {
     position: 'absolute',
     top: 56,

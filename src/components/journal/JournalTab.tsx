@@ -32,6 +32,7 @@ interface JournalTabProps {
   folderColor: string;
   folderImage: string;
   activityTypes: string[];
+  footerExtra?: React.ReactNode;
 }
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -42,6 +43,7 @@ export function JournalTab({
   folderColor,
   folderImage,
   activityTypes,
+  footerExtra,
 }: JournalTabProps) {
   const [cinzelLoaded] = useCinzelFonts({ Cinzel_700Bold, Cinzel_900Black });
   const [garamondLoaded] = useGaramondFonts({ EBGaramond_400Regular, EBGaramond_700Bold });
@@ -129,6 +131,7 @@ export function JournalTab({
       <View style={styles.csvRow}>
         <CSVExport category={category} categoryTitle={title} />
       </View>
+      {footerExtra ? <View>{footerExtra}</View> : null}
     </View>
   );
 

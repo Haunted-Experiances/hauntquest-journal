@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { JournalTab } from '@/components/journal/JournalTab';
@@ -13,27 +13,14 @@ const ACTIVITY_TYPES = [
 export default function EVPScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#050d05' }}>
-      {/* Journal takes up top half, Recorder below — both in a scroll */}
-      <ScrollView
-        style={{ flex: 1 }}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        nestedScrollEnabled
-      >
-        {/* EVP Journal */}
-        <View style={styles.journalSection}>
-          <JournalTab
-            category="evp"
-            title="EVP Evidence"
-            folderColor="#1C3A1C"
-            folderImage="🎙️"
-            activityTypes={ACTIVITY_TYPES}
-          />
-        </View>
-
-        {/* EVP Recorder below */}
-        <EVPRecorder />
-      </ScrollView>
+      <JournalTab
+        category="evp"
+        title="EVP Evidence"
+        folderColor="#1C3A1C"
+        folderImage="🎙️"
+        activityTypes={ACTIVITY_TYPES}
+        footerExtra={<EVPRecorder />}
+      />
 
       {/* Back button */}
       <Pressable style={styles.backBtn} onPress={() => router.back()} testID="back-button">
@@ -44,9 +31,6 @@ export default function EVPScreen() {
 }
 
 const styles = StyleSheet.create({
-  journalSection: {
-    minHeight: 500,
-  },
   backBtn: {
     position: 'absolute',
     top: 56,
