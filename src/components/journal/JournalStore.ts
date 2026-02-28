@@ -28,10 +28,13 @@ export interface JournalEntry {
 interface JournalState {
   entries: JournalEntry[];
   backgroundImageUrl: string | null;
+  savedBackgrounds: string[];
   addEntry: (entry: JournalEntry) => void;
   deleteEntry: (id: string) => void;
   updateEntry: (id: string, updates: Partial<Omit<JournalEntry, 'id' | 'category' | 'createdAt'>>) => void;
   setBackgroundImageUrl: (url: string) => void;
+  addSavedBackground: (url: string) => void;
+  removeSavedBackground: (url: string) => void;
   getEntriesByCategory: (category: JournalCategory) => JournalEntry[];
   exportToCSV: (category: JournalCategory) => string;
 }
@@ -41,6 +44,7 @@ export const useJournalStore = create<JournalState>()(
     (set, get) => ({
       entries: [],
       backgroundImageUrl: null,
+      savedBackgrounds: [],
 
       addEntry: (entry: JournalEntry) => {
         set((state) => ({ entries: [entry, ...state.entries] }));
@@ -58,6 +62,20 @@ export const useJournalStore = create<JournalState>()(
 
       setBackgroundImageUrl: (url: string) => {
         set({ backgroundImageUrl: url });
+        get().addSavedBackground(url);
+      },
+
+      addSavedBackground: (url: string) => {
+        set((state) => {
+          const filtered = state.savedBackgrounds.filter((u) => u !== url);
+          return { savedBackgrounds: [url, ...filtered].slice(0, 20) };
+        });
+      },
+
+      removeSavedBackground: (url: string) => {
+        set((state) => ({
+          savedBackgrounds: state.savedBackgrounds.filter((u) => u !== url),
+        }));
       },
 
       getEntriesByCategory: (category: JournalCategory): JournalEntry[] => {

@@ -9,7 +9,11 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Modal,
+  FlatList,
+  TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
@@ -23,7 +27,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
-import { Camera } from 'lucide-react-native';
+import { Camera, Images, X, Trash2 } from 'lucide-react-native';
 import {
   useFonts as useCinzelFonts,
   Cinzel_900Black,
@@ -70,7 +74,11 @@ export default function HomeScreen() {
 
   const backgroundImageUrl = useJournalStore((s) => s.backgroundImageUrl);
   const setBackgroundImageUrl = useJournalStore((s) => s.setBackgroundImageUrl);
+  const savedBackgrounds = useJournalStore((s) => s.savedBackgrounds);
+  const removeSavedBackground = useJournalStore((s) => s.removeSavedBackground);
+
   const [uploading, setUploading] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
 
   const bgImage = backgroundImageUrl ?? DEFAULT_IMAGE;
 
@@ -159,6 +167,8 @@ export default function HomeScreen() {
     }
   };
 
+  const thumbnailSize = (W - 48) / 2;
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -205,19 +215,38 @@ export default function HomeScreen() {
         </Text>
       </View>
 
-      {/* Change background button — top right */}
-      <Pressable
-        style={styles.changeBgBtn}
-        onPress={handleChangeBackground}
-        disabled={uploading}
-        testID="change-background-btn"
-      >
-        {uploading ? (
-          <ActivityIndicator size="small" color="#e8c870" />
-        ) : (
-          <Camera size={18} color="#e8c870" />
-        )}
-      </Pressable>
+      {/* Top-right button stack: gallery + camera */}
+      <View style={styles.topRightButtons}>
+        {/* Gallery button */}
+        <Pressable
+          style={styles.changeBgBtn}
+          onPress={() => setGalleryOpen(true)}
+          testID="open-gallery-btn"
+        >
+          <Images size={18} color="#e8c870" />
+          {savedBackgrounds.length > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {savedBackgrounds.length > 9 ? '9+' : String(savedBackgrounds.length)}
+              </Text>
+            </View>
+          ) : null}
+        </Pressable>
+
+        {/* Change background (camera) button */}
+        <Pressable
+          style={styles.changeBgBtn}
+          onPress={handleChangeBackground}
+          disabled={uploading}
+          testID="change-background-btn"
+        >
+          {uploading ? (
+            <ActivityIndicator size="small" color="#e8c870" />
+          ) : (
+            <Camera size={18} color="#e8c870" />
+          )}
+        </Pressable>
+      </View>
 
       {/* Journal entry buttons — bottom */}
       <View style={styles.journalRow}>
@@ -249,6 +278,75 @@ export default function HomeScreen() {
           style={{ flex: 1 }}
         />
       </View>
+
+      {/* Saved Backgrounds Gallery Modal */}
+      <Modal
+        visible={galleryOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setGalleryOpen(false)}
+        testID="gallery-modal"
+      >
+        <View style={styles.modalOverlay}>
+          <SafeAreaView style={styles.modalSafeArea}>
+            {/* Header */}
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { fontFamily: titleFont }]}>
+                SAVED BACKGROUNDS
+              </Text>
+              <TouchableOpacity
+                onPress={() => setGalleryOpen(false)}
+                style={styles.modalCloseBtn}
+                testID="gallery-close-btn"
+              >
+                <X size={20} color="#e8c870" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Grid */}
+            <FlatList
+              data={savedBackgrounds}
+              keyExtractor={(item) => item}
+              numColumns={2}
+              contentContainerStyle={styles.gridContent}
+              columnWrapperStyle={styles.gridRow}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>No saved backgrounds yet</Text>
+                </View>
+              }
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[styles.thumbnailWrapper, { width: thumbnailSize, height: thumbnailSize }]}
+                  onPress={() => {
+                    setBackgroundImageUrl(item);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setGalleryOpen(false);
+                  }}
+                  testID="gallery-thumbnail"
+                >
+                  <Image
+                    source={{ uri: item }}
+                    style={[styles.thumbnailImage, { width: thumbnailSize, height: thumbnailSize }]}
+                    resizeMode="cover"
+                  />
+                  {/* Trash button */}
+                  <Pressable
+                    style={styles.trashBtn}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      removeSavedBackground(item);
+                    }}
+                    testID="gallery-remove-btn"
+                  >
+                    <Trash2 size={14} color="#e8c870" />
+                  </Pressable>
+                </Pressable>
+              )}
+            />
+          </SafeAreaView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -265,15 +363,36 @@ const styles = StyleSheet.create({
     width: W,
     height: H,
   },
-  changeBgBtn: {
+  topRightButtons: {
     position: 'absolute',
     top: 52,
     right: 16,
+    gap: 10,
+    alignItems: 'center',
+  },
+  changeBgBtn: {
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 22,
     padding: 10,
     borderWidth: 1,
     borderColor: 'rgba(232,200,112,0.3)',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#e8c870',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    color: '#0a0510',
+    fontSize: 9,
+    fontWeight: '700',
   },
   fogLayer: {
     position: 'absolute',
@@ -362,5 +481,68 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 40,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+  },
+  modalSafeArea: {
+    flex: 1,
+    backgroundColor: '#0a0510',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#0a0510',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(232,200,112,0.2)',
+  },
+  modalTitle: {
+    fontSize: 14,
+    color: '#e8c870',
+    letterSpacing: 3,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  gridContent: {
+    padding: 12,
+    gap: 12,
+  },
+  gridRow: {
+    gap: 12,
+  },
+  thumbnailWrapper: {
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  thumbnailImage: {
+    borderRadius: 6,
+  },
+  trashBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 80,
+  },
+  emptyText: {
+    color: '#6a5a3a',
+    fontSize: 14,
+    textAlign: 'center',
   },
 });
