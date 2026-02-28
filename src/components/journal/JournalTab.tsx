@@ -63,7 +63,7 @@ export function JournalTab({
   const bodyBoldFont = fontsLoaded ? 'EBGaramond_700Bold' : undefined;
 
   const renderEntry = ({ item, index }: { item: JournalEntry; index: number }) => (
-    <EntryCard entry={item} index={index} onDelete={deleteEntry} />
+    <EntryCard entry={item} index={index} onDelete={deleteEntry} activityTypes={activityTypes} />
   );
 
   const ListHeader = () => (

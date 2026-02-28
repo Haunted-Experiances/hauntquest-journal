@@ -30,6 +30,7 @@ interface JournalState {
   backgroundImageUrl: string | null;
   addEntry: (entry: JournalEntry) => void;
   deleteEntry: (id: string) => void;
+  updateEntry: (id: string, updates: Partial<Omit<JournalEntry, 'id' | 'category' | 'createdAt'>>) => void;
   setBackgroundImageUrl: (url: string) => void;
   getEntriesByCategory: (category: JournalCategory) => JournalEntry[];
   exportToCSV: (category: JournalCategory) => string;
@@ -47,6 +48,12 @@ export const useJournalStore = create<JournalState>()(
 
       deleteEntry: (id: string) => {
         set((state) => ({ entries: state.entries.filter((e) => e.id !== id) }));
+      },
+
+      updateEntry: (id, updates) => {
+        set((state) => ({
+          entries: state.entries.map((e) => e.id === id ? { ...e, ...updates } : e),
+        }));
       },
 
       setBackgroundImageUrl: (url: string) => {
