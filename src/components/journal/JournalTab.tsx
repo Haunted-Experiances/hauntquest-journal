@@ -207,7 +207,7 @@ export function JournalTab({
           ListFooterComponent={<ListFooter />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           testID="entries-list"
         />
       </SafeAreaView>

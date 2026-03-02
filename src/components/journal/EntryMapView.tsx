@@ -533,8 +533,11 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
   }, [editingPin, entryId, updatePin]);
 
   const handleDeletePin = useCallback((pin: MapPin) => {
-    setDeletingLocalPin(pin);
-  }, []);
+    deletePin(entryId, pin.id);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+  }, [entryId, deletePin]);
 
   const handleConfirmDeleteLocal = useCallback(() => {
     if (!deletingLocalPin) return;
@@ -591,18 +594,18 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
                 </Text>
               </View>
               <Pressable
-                style={styles.pinEditBtn}
+                style={({ pressed }) => [styles.pinEditBtn, pressed && { opacity: 0.6 }]}
                 onPress={() => handleEditPin(pin)}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
               >
-                <Pencil size={13} color="#7a5c2e" />
+                <Pencil size={14} color="#7a5c2e" />
               </Pressable>
               <Pressable
-                style={styles.pinDeleteBtn}
+                style={({ pressed }) => [styles.pinDeleteBtn, pressed && { opacity: 0.6 }]}
                 onPress={() => handleDeletePin(pin)}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
               >
-                <Trash2 size={13} color="#8b0000" />
+                <Trash2 size={14} color="#fff" />
               </Pressable>
             </View>
           ))}
@@ -1128,7 +1131,7 @@ const styles = StyleSheet.create({
   pinLabel: { fontSize: 11, fontWeight: '700', color: '#3d2600' },
   pinCoords: { fontSize: 9, color: '#9a7c4e', marginTop: 1, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
   pinEditBtn: { padding: 10, marginLeft: 2 },
-  pinDeleteBtn: { padding: 10, marginLeft: 2, backgroundColor: 'rgba(139,0,0,0.08)', borderRadius: 6 },
+  pinDeleteBtn: { padding: 10, marginLeft: 4, backgroundColor: '#8b0000', borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
 
   // Worldwide pin list
   wwPinList: {
