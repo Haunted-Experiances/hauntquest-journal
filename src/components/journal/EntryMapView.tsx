@@ -338,6 +338,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
   });
 
   const mapRef = useRef<any>(null);
+  const [mapView, setMapView] = useState<'local' | 'worldwide'>('local');
   const [addingPin, setAddingPin] = useState(false);
   const [pinTarget, setPinTarget] = useState<'local' | 'worldwide'>('local');
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
@@ -540,6 +541,11 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
           const next = !pinsExpanded;
           setPinsExpanded(next);
           chevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+          if (next) {
+            setMapView('local');
+            setWwPinsExpanded(false);
+            wwChevronRotation.value = withTiming(0, { duration: 220 });
+          }
           if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }}
       >
@@ -585,6 +591,11 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
           const next = !wwPinsExpanded;
           setWwPinsExpanded(next);
           wwChevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+          if (next) {
+            setMapView('worldwide');
+            setPinsExpanded(false);
+            chevronRotation.value = withTiming(0, { duration: 220 });
+          }
           if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }}
         testID="entry-worldwide-pins-toggle"
@@ -716,7 +727,11 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
       );
     }
 
-    const leafletHtml = buildLeafletHTML(pins, worldwidePins, centerLat, centerLng, addingPin);
+    const leafletHtml = buildLeafletHTML(
+      mapView === 'local' ? pins : [],
+      mapView === 'worldwide' ? worldwidePins : [],
+      centerLat, centerLng, addingPin,
+    );
 
     return (
       <View style={styles.container}>
@@ -727,6 +742,16 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
             <Text style={styles.headerTitle}>LOCATION MAP</Text>
           </View>
           <View style={styles.headerActions}>
+            {!addingPin ? (
+              <View style={styles.mapViewBadge}>
+                {mapView === 'worldwide'
+                  ? <Globe size={9} color="#3949ab" />
+                  : <MapPinIcon size={9} color="#7a5c2e" />}
+                <Text style={[styles.mapViewBadgeText, mapView === 'worldwide' && { color: '#3949ab' }]}>
+                  {mapView === 'worldwide' ? 'WORLDWIDE' : 'MY PINS'}
+                </Text>
+              </View>
+            ) : null}
             <Pressable
               style={[styles.addPinBtn, addingPin && styles.addPinBtnActive]}
               onPress={() => {
@@ -800,6 +825,16 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
           <Pressable style={styles.locateBtn} onPress={goToCurrentLocation} disabled={locating}>
             <Navigation size={12} color={locating ? '#b09060' : '#7a5c2e'} />
           </Pressable>
+          {!addingPin ? (
+            <View style={styles.mapViewBadge}>
+              {mapView === 'worldwide'
+                ? <Globe size={9} color="#3949ab" />
+                : <MapPinIcon size={9} color="#7a5c2e" />}
+              <Text style={[styles.mapViewBadgeText, mapView === 'worldwide' && { color: '#3949ab' }]}>
+                {mapView === 'worldwide' ? 'WORLDWIDE' : 'MY PINS'}
+              </Text>
+            </View>
+          ) : null}
           <Pressable
             style={[styles.addPinBtn, addingPin && styles.addPinBtnActive]}
             onPress={() => {
@@ -845,7 +880,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
           showsUserLocation
           showsMyLocationButton={false}
         >
-          {pins.map((pin) => (
+          {mapView === 'local' && pins.map((pin) => (
             <Marker
               key={pin.id}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
@@ -854,7 +889,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
               onCalloutPress={() => handleEditPin(pin)}
             />
           ))}
-          {worldwidePins.map((pin) => (
+          {mapView === 'worldwide' && worldwidePins.map((pin) => (
             <Marker
               key={`ww-${pin.id}`}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
@@ -926,6 +961,23 @@ const styles = StyleSheet.create({
   },
   addPinText: { fontSize: 10, fontWeight: '700', color: '#7a5c2e', letterSpacing: 0.5 },
   addPinTextActive: { color: '#8b0000' },
+  mapViewBadge: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(139,90,0,0.15)',
+  },
+  mapViewBadgeText: {
+    fontSize: 7,
+    fontWeight: '800' as const,
+    color: '#7a5c2e',
+    letterSpacing: 1.5,
+  },
 
   // Pin target toggle
   pinTargetToggle: {
