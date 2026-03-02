@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -32,14 +32,6 @@ if (isNative) {
 let Location: any = null;
 if (isNative) {
   Location = require('expo-location');
-}
-
-// react-native-webview for web Leaflet map
-let WebView: any = null;
-try {
-  WebView = require('react-native-webview').WebView;
-} catch {
-  WebView = null;
 }
 
 const PIN_COLORS = [
@@ -462,6 +454,19 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
     }
   }, [addingPin, pinTarget, session]);
 
+  // Web: listen for postMessage from srcdoc iframe
+  useEffect(() => {
+    if (isNative) return;
+    const handler = (ev: MessageEvent) => {
+      try {
+        const data = JSON.parse(ev.data as string);
+        if (data.type === 'MAP_TAP') handleWebViewMessage({ nativeEvent: { data: ev.data } });
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [handleWebViewMessage]);
+
   const handleSaveNewPin = useCallback((label: string, color: string) => {
     if (!newPinCoords || !editingPin) return;
     if (editingPin.id === '__new_ww__') {
@@ -716,22 +721,14 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
     </View>
   );
 
-  // ─── WEB: Leaflet via WebView ────────────────────────────────────────────────
+  // ─── WEB: Leaflet via iframe (no WebView needed) ─────────────────────────────
   if (!isNative) {
-    if (!WebView) {
-      return (
-        <View style={styles.webFallback}>
-          <Map size={16} color="#9a7c4e" />
-          <Text style={styles.webFallbackText}>Map requires react-native-webview</Text>
-        </View>
-      );
-    }
-
     const leafletHtml = buildLeafletHTML(
       mapView === 'local' ? pins : [],
       mapView === 'worldwide' ? worldwidePins : [],
       centerLat, centerLng, addingPin,
     );
+    const iframeKey = `entry-${mapView}-${pins.length}-${worldwidePins.length}-${addingPin}`;
 
     return (
       <View style={styles.container}>
@@ -786,15 +783,15 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
           </View>
         ) : null}
 
-        {/* Leaflet WebView map */}
+        {/* Leaflet iframe map */}
         <View style={styles.mapWrapper}>
-          <WebView
-            source={{ html: leafletHtml }}
-            style={styles.map}
-            onMessage={handleWebViewMessage}
-            javaScriptEnabled
-            originWhitelist={['*']}
-            scrollEnabled={false}
+          {/* @ts-ignore — iframe is valid JSX on web */}
+          <iframe
+            key={iframeKey}
+            srcDoc={leafletHtml}
+            style={{ width: '100%', height: 220, border: 'none', display: 'block' }}
+            title="Location Map"
+            sandbox="allow-scripts allow-same-origin"
           />
         </View>
 
@@ -1138,24 +1135,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wwEmptyText: { fontSize: 11, color: '#7a7c9e', textAlign: 'center', fontStyle: 'italic' },
-
-  webFallback: {
-    marginTop: 12,
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(139,90,0,0.25)',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  webFallbackText: {
-    fontSize: 11,
-    color: '#9a7c4e',
-    fontStyle: 'italic',
-  },
 });
 
 const editModalStyles = StyleSheet.create({
