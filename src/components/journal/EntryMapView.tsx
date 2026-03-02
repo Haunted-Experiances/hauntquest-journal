@@ -72,18 +72,20 @@ interface EntryMapViewProps {
 interface PinEditModalProps {
   visible: boolean;
   pin: MapPin | null;
-  onSave: (label: string, color: string) => void;
+  onSave: (label: string, color: string, note: string) => void;
   onCancel: () => void;
 }
 
 function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
   const [label, setLabel] = useState(pin?.label ?? '');
   const [color, setColor] = useState(pin?.color ?? PIN_COLORS[0].value);
+  const [note, setNote] = useState(pin?.note ?? '');
 
   React.useEffect(() => {
     if (pin) {
       setLabel(pin.label);
       setColor(pin.color);
+      setNote(pin.note ?? '');
     }
   }, [pin]);
 
@@ -103,6 +105,19 @@ function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
               placeholder="Pin label..."
               placeholderTextColor="#b09060"
               maxLength={40}
+            />
+          </View>
+
+          <Text style={editModalStyles.label}>TAG / NOTE</Text>
+          <View style={editModalStyles.inputBox}>
+            <Text style={{ fontSize: 13, color: '#9a7c4e' }}>🏷</Text>
+            <TextInput
+              style={editModalStyles.input}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Add a tag or note..."
+              placeholderTextColor="#b09060"
+              maxLength={80}
             />
           </View>
 
@@ -128,7 +143,7 @@ function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
             </Pressable>
             <Pressable
               style={editModalStyles.saveBtn}
-              onPress={() => onSave(label || 'Pin', color)}
+              onPress={() => onSave(label || 'Pin', color, note)}
             >
               <Check size={14} color="#f5e4bb" />
               <Text style={editModalStyles.saveText}>Save</Text>
@@ -486,7 +501,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
     return () => clearTimeout(timer);
   }, [pins, worldwidePins]);
 
-  const handleSaveNewPin = useCallback((label: string, color: string) => {
+  const handleSaveNewPin = useCallback((label: string, color: string, note: string) => {
     if (!newPinCoords || !editingPin) return;
     if (editingPin.id === '__new_ww__') {
       addWorldwidePin({
@@ -496,7 +511,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
         color,
         emoji: '📍',
         pinType: label || 'Pin',
-        note: '',
+        note,
         category: wwCategory,
       });
     } else {
@@ -506,6 +521,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
         longitude: newPinCoords.longitude,
         label,
         color,
+        note,
         createdAt: new Date().toISOString(),
       };
       addPin(entryId, pin);
@@ -523,9 +539,9 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
     setEditingPin(pin);
   }, []);
 
-  const handleSaveEditPin = useCallback((label: string, color: string) => {
+  const handleSaveEditPin = useCallback((label: string, color: string, note: string) => {
     if (!editingPin || editingPin.id === '__new__' || editingPin.id === '__new_ww__') return;
-    updatePin(entryId, editingPin.id, { label, color });
+    updatePin(entryId, editingPin.id, { label, color, note });
     if (Platform.OS !== 'web') {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
@@ -589,6 +605,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
               <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
               <View style={styles.pinInfo}>
                 <Text style={styles.pinLabel}>{pin.label}</Text>
+                {pin.note ? <Text style={styles.pinCoords}>🏷 {pin.note}</Text> : null}
                 <Text style={styles.pinCoords}>
                   {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
                 </Text>

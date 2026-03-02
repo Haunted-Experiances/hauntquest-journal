@@ -24,6 +24,7 @@ export interface MapPin {
   longitude: number;
   label: string;
   color: string;
+  note?: string;
   createdAt: string;
 }
 
@@ -56,7 +57,7 @@ interface JournalState {
   deleteEntry: (id: string) => void;
   updateEntry: (id: string, updates: Partial<Omit<JournalEntry, 'id' | 'category' | 'createdAt'>>) => void;
   addPin: (entryId: string, pin: MapPin) => void;
-  updatePin: (entryId: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => void;
+  updatePin: (entryId: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color' | 'note'>>) => void;
   deletePin: (entryId: string, pinId: string) => void;
   addCategoryPin: (category: string, pin: MapPin) => void;
   updateCategoryPin: (category: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => void;
@@ -158,7 +159,7 @@ export const useJournalStore = create<JournalState>()(
         }));
       },
 
-      updatePin: (entryId: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color'>>) => {
+      updatePin: (entryId: string, pinId: string, updates: Partial<Pick<MapPin, 'label' | 'color' | 'note'>>) => {
         set((state) => ({
           entries: state.entries.map((e) =>
             e.id === entryId
