@@ -467,6 +467,24 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
     return () => window.removeEventListener('message', handler);
   }, [handleWebViewMessage]);
 
+  // Auto-fit map to show all pins when they change
+  useEffect(() => {
+    if (!isNative || !mapRef.current) return;
+    const allCoords = [
+      ...pins.map(p => ({ latitude: p.latitude, longitude: p.longitude })),
+      ...worldwidePins.map(p => ({ latitude: p.latitude, longitude: p.longitude })),
+    ];
+    if (allCoords.length === 0) return;
+    // Small delay to ensure map is mounted
+    const timer = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(allCoords, {
+        edgePadding: { top: 40, right: 40, bottom: 40, left: 40 },
+        animated: true,
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [pins, worldwidePins]);
+
   const handleSaveNewPin = useCallback((label: string, color: string) => {
     if (!newPinCoords || !editingPin) return;
     if (editingPin.id === '__new_ww__') {
@@ -881,10 +899,11 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
             <Marker
               key={pin.id}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              pinColor={pin.color}
               title={pin.label}
               onCalloutPress={() => handleEditPin(pin)}
-            />
+            >
+              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: pin.color, borderWidth: 2.5, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 3, elevation: 4 }} />
+            </Marker>
           ))}
           {wwPinsExpanded ? worldwidePins.map((pin) => (
             <Marker
