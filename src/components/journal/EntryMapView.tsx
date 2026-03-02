@@ -580,9 +580,9 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
       </Pressable>
 
       {pinsExpanded ? (
-        <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+        <View>
           {pins.map((pin) => (
-            <View key={pin.id} style={styles.pinRow}>
+            <View key={pin.id} style={styles.pinRow} onStartShouldSetResponder={() => true}>
               <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
               <View style={styles.pinInfo}>
                 <Text style={styles.pinLabel}>{pin.label}</Text>
@@ -590,15 +590,23 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
                   {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
                 </Text>
               </View>
-              <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
-                <Pencil size={11} color="#7a5c2e" />
+              <Pressable
+                style={styles.pinEditBtn}
+                onPress={() => handleEditPin(pin)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Pencil size={13} color="#7a5c2e" />
               </Pressable>
-              <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin)}>
-                <Trash2 size={11} color="#8b0000" />
+              <Pressable
+                style={styles.pinDeleteBtn}
+                onPress={() => handleDeletePin(pin)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Trash2 size={13} color="#8b0000" />
               </Pressable>
             </View>
           ))}
-        </ScrollView>
+        </View>
       ) : null}
     </View>
   ) : null;
@@ -1119,8 +1127,8 @@ const styles = StyleSheet.create({
   pinInfo: { flex: 1 },
   pinLabel: { fontSize: 11, fontWeight: '700', color: '#3d2600' },
   pinCoords: { fontSize: 9, color: '#9a7c4e', marginTop: 1, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
-  pinEditBtn: { padding: 6 },
-  pinDeleteBtn: { padding: 6 },
+  pinEditBtn: { padding: 10, marginLeft: 2 },
+  pinDeleteBtn: { padding: 10, marginLeft: 2, backgroundColor: 'rgba(139,0,0,0.08)', borderRadius: 6 },
 
   // Worldwide pin list
   wwPinList: {
