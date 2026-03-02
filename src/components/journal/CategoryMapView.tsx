@@ -453,6 +453,7 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
   const addingPinRef = useRef(false);
   const selectedPinTypeRef = useRef<PinType | null>(null);
 
+  const [mapView, setMapView] = useState<'local' | 'worldwide'>('local');
   const [addingPin, setAddingPin] = useState(false);
   const [pinTarget, setPinTarget] = useState<'local' | 'worldwide'>('local');
   const [selectedPinType, setSelectedPinType] = useState<PinType | null>(null);
@@ -617,6 +618,18 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
         <Text style={styles.headerTitle}>INVESTIGATION MAP</Text>
       </View>
       <View style={styles.headerActions}>
+        {!addingPin ? (
+          <View style={styles.mapViewBadge}>
+            {mapView === 'worldwide' ? (
+              <Globe size={9} color="#3949ab" />
+            ) : (
+              <MapPinIcon size={9} color="#7a5c2e" />
+            )}
+            <Text style={[styles.mapViewBadgeText, mapView === 'worldwide' && { color: '#3949ab' }]}>
+              {mapView === 'worldwide' ? 'WORLDWIDE' : 'MY PINS'}
+            </Text>
+          </View>
+        ) : null}
         {isNative ? (
           <Pressable
             style={styles.locateBtn}
@@ -715,6 +728,11 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
       const next = !pinsExpanded;
       setPinsExpanded(next);
       chevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+      if (next) {
+        setMapView('local');
+        setWwPinsExpanded(false);
+        wwChevronRotation.value = withTiming(0, { duration: 220 });
+      }
       if (isNative) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
 
@@ -781,6 +799,11 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
       const next = !wwPinsExpanded;
       setWwPinsExpanded(next);
       wwChevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+      if (next) {
+        setMapView('worldwide');
+        setPinsExpanded(false);
+        chevronRotation.value = withTiming(0, { duration: 220 });
+      }
       if (isNative) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
 
@@ -894,8 +917,15 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
 
   // ─── Web: Leaflet via srcdoc iframe ──────────────────────────────────────────
   if (!isNative) {
-    const leafletHtml = buildLeafletHTML(pins, worldwidePins, centerLat, centerLng, addingPin, selectedPinType);
-    const iframeKey = `${pins.length}-${worldwidePins.length}-${addingPin}-${selectedPinType?.name ?? 'none'}`;
+    const leafletHtml = buildLeafletHTML(
+      mapView === 'local' ? pins : [],
+      mapView === 'worldwide' ? worldwidePins : [],
+      centerLat,
+      centerLng,
+      addingPin,
+      selectedPinType,
+    );
+    const iframeKey = `${mapView}-${pins.length}-${worldwidePins.length}-${addingPin}-${selectedPinType?.name ?? 'none'}`;
 
     return (
       <View style={styles.container} testID="category-map-view">
@@ -954,7 +984,7 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
           showsUserLocation
           showsMyLocationButton={false}
         >
-          {pins.map((pin) => {
+          {mapView === 'local' && pins.map((pin) => {
             const pt = getPinType(pin);
             return (
               <Marker
@@ -995,7 +1025,7 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
               </Marker>
             );
           })}
-          {worldwidePins.map((pin) => (
+          {mapView === 'worldwide' && worldwidePins.map((pin) => (
             <Marker
               key={`ww-${pin.id}`}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
@@ -1065,6 +1095,23 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   doneBtnText: { fontSize: 10, fontWeight: '800', color: '#f5e4bb', letterSpacing: 0.5 },
+  mapViewBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(139,90,0,0.15)',
+  },
+  mapViewBadgeText: {
+    fontSize: 7,
+    fontWeight: '800',
+    color: '#7a5c2e',
+    letterSpacing: 1.5,
+  },
 
   // Pin target toggle
   pinTargetToggle: {
