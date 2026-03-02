@@ -11,7 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Navigation, Map } from 'lucide-react-native';
+import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Navigation, Map, ChevronDown } from 'lucide-react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate } from 'react-native-reanimated';
 import { MapPin, useJournalStore } from './JournalStore';
 
 // react-native-maps only works on native (iOS/Android), not web
@@ -242,6 +243,12 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
   const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
+  const [pinsExpanded, setPinsExpanded] = useState(false);
+
+  const chevronRotation = useSharedValue(0);
+  const chevronAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
 
   const centerLat = initialLatitude ?? 54.5;
   const centerLng = initialLongitude ?? -3.5;
@@ -365,6 +372,50 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
 
   const isNewPin = editingPin?.id === '__new__';
 
+  const collapsiblePinList = pins.length > 0 ? (
+    <View style={styles.pinList}>
+      <Pressable
+        style={styles.pinListHeader}
+        onPress={() => {
+          const next = !pinsExpanded;
+          setPinsExpanded(next);
+          chevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }}
+      >
+        <View style={styles.pinListHeaderLeft}>
+          <MapPinIcon size={11} color="#9a7c4e" />
+          <Text style={styles.pinListTitle}>SAVED PINS ({pins.length})</Text>
+        </View>
+        <Animated.View style={chevronAnimStyle}>
+          <ChevronDown size={14} color="#9a7c4e" />
+        </Animated.View>
+      </Pressable>
+
+      {pinsExpanded ? (
+        <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+          {pins.map((pin) => (
+            <View key={pin.id} style={styles.pinRow}>
+              <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
+              <View style={styles.pinInfo}>
+                <Text style={styles.pinLabel}>{pin.label}</Text>
+                <Text style={styles.pinCoords}>
+                  {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
+                </Text>
+              </View>
+              <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
+                <Pencil size={11} color="#7a5c2e" />
+              </Pressable>
+              <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin.id)}>
+                <Trash2 size={11} color="#8b0000" />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  ) : null;
+
   // ─── WEB: Leaflet via WebView ────────────────────────────────────────────────
   if (!isNative) {
     if (!WebView) {
@@ -421,31 +472,8 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
           />
         </View>
 
-        {/* Pin list */}
-        {pins.length > 0 ? (
-          <View style={styles.pinList}>
-            <Text style={styles.pinListTitle}>PINS ({pins.length})</Text>
-            <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              {pins.map((pin) => (
-                <View key={pin.id} style={styles.pinRow}>
-                  <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
-                  <View style={styles.pinInfo}>
-                    <Text style={styles.pinLabel}>{pin.label}</Text>
-                    <Text style={styles.pinCoords}>
-                      {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
-                    </Text>
-                  </View>
-                  <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
-                    <Pencil size={11} color="#7a5c2e" />
-                  </Pressable>
-                  <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin.id)}>
-                    <Trash2 size={11} color="#8b0000" />
-                  </Pressable>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
+        {/* Collapsible pin list */}
+        {collapsiblePinList}
 
         {/* Edit Modal */}
         <PinEditModal
@@ -516,31 +544,8 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
         </MapView>
       </View>
 
-      {/* Pin list */}
-      {pins.length > 0 ? (
-        <View style={styles.pinList}>
-          <Text style={styles.pinListTitle}>PINS ({pins.length})</Text>
-          <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-            {pins.map((pin) => (
-              <View key={pin.id} style={styles.pinRow}>
-                <View style={[styles.pinColorDot, { backgroundColor: pin.color }]} />
-                <View style={styles.pinInfo}>
-                  <Text style={styles.pinLabel}>{pin.label}</Text>
-                  <Text style={styles.pinCoords}>
-                    {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
-                  </Text>
-                </View>
-                <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
-                  <Pencil size={11} color="#7a5c2e" />
-                </Pressable>
-                <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin.id)}>
-                  <Trash2 size={11} color="#8b0000" />
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
+      {/* Collapsible pin list */}
+      {collapsiblePinList}
 
       {/* Edit Modal — for both new and existing pins */}
       <PinEditModal
@@ -614,12 +619,23 @@ const styles = StyleSheet.create({
   map: { flex: 1 },
   pinList: {
     paddingHorizontal: 10,
-    paddingTop: 8,
     paddingBottom: 4,
     borderTopWidth: 1,
     borderTopColor: 'rgba(139,90,0,0.15)',
   },
-  pinListTitle: { fontSize: 8, fontWeight: '800', color: '#9a7c4e', letterSpacing: 2, marginBottom: 6 },
+  pinListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+  },
+  pinListHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pinListTitle: { fontSize: 8, fontWeight: '800', color: '#9a7c4e', letterSpacing: 2 },
   pinScroll: { maxHeight: 130 },
   pinRow: {
     flexDirection: 'row',

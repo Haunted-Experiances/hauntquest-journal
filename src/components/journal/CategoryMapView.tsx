@@ -10,7 +10,8 @@ import {
   Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Map, Navigation } from 'lucide-react-native';
+import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Map, Navigation, ChevronDown } from 'lucide-react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate } from 'react-native-reanimated';
 import { MapPin, useJournalStore } from './JournalStore';
 
 // ─── Platform guards ─────────────────────────────────────────────────────────
@@ -361,6 +362,12 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
   const [deletingPin, setDeletingPin] = useState<MapPin | null>(null);
   const [locating, setLocating] = useState(false);
+  const [pinsExpanded, setPinsExpanded] = useState(false);
+
+  const chevronRotation = useSharedValue(0);
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
 
   // Keep refs in sync for closure-safe access
   addingPinRef.current = addingPin;
@@ -535,49 +542,68 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
 
   const renderPinList = () => {
     if (pins.length === 0) return null;
+
+    const handleToggle = () => {
+      const next = !pinsExpanded;
+      setPinsExpanded(next);
+      chevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+      if (isNative) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    };
+
     return (
       <View style={styles.pinList}>
-        <Text style={styles.pinListTitle}>PINS ({pins.length})</Text>
-        <ScrollView
-          style={styles.pinScroll}
-          nestedScrollEnabled
-          showsVerticalScrollIndicator={false}
-        >
-          {pins.map((pin) => {
-            const pt = getPinType(pin);
-            const note = getPinNote(pin);
-            return (
-              <View key={pin.id} style={styles.pinRow} testID={`pin-row-${pin.id}`}>
-                <View style={[styles.pinDot, { backgroundColor: pt.color }]}>
-                  <Text style={styles.pinDotEmoji}>{pt.emoji}</Text>
-                </View>
-                <View style={styles.pinInfo}>
-                  <View style={styles.pinInfoTop}>
-                    <Text style={[styles.pinTypeName, { color: pt.color }]}>{pt.name}</Text>
+        <Pressable style={styles.pinListHeader} onPress={handleToggle}>
+          <View style={styles.pinListHeaderLeft}>
+            <MapPinIcon size={11} color="#9a7c4e" />
+            <Text style={styles.pinListTitle}>SAVED PINS ({pins.length})</Text>
+          </View>
+          <Animated.View style={chevronStyle}>
+            <ChevronDown size={14} color="#9a7c4e" />
+          </Animated.View>
+        </Pressable>
+
+        {pinsExpanded ? (
+          <ScrollView
+            style={styles.pinScroll}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+          >
+            {pins.map((pin) => {
+              const pt = getPinType(pin);
+              const note = getPinNote(pin);
+              return (
+                <View key={pin.id} style={styles.pinRow} testID={`pin-row-${pin.id}`}>
+                  <View style={[styles.pinDot, { backgroundColor: pt.color }]}>
+                    <Text style={styles.pinDotEmoji}>{pt.emoji}</Text>
                   </View>
-                  {note ? <Text style={styles.pinNote}>{note}</Text> : null}
-                  <Text style={styles.pinCoords}>
-                    {pin.latitude.toFixed(4)}, {pin.longitude.toFixed(4)}
-                  </Text>
+                  <View style={styles.pinInfo}>
+                    <View style={styles.pinInfoTop}>
+                      <Text style={[styles.pinTypeName, { color: pt.color }]}>{pt.name}</Text>
+                    </View>
+                    {note ? <Text style={styles.pinNote}>{note}</Text> : null}
+                    <Text style={styles.pinCoords}>
+                      {pin.latitude.toFixed(4)}, {pin.longitude.toFixed(4)}
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={styles.pinActionBtn}
+                    onPress={() => setEditingPin(pin)}
+                    testID={`pin-edit-${pin.id}`}
+                  >
+                    <Pencil size={12} color="#7a5c2e" />
+                  </Pressable>
+                  <Pressable
+                    style={[styles.pinActionBtn, styles.pinDeleteBtn]}
+                    onPress={() => setDeletingPin(pin)}
+                    testID={`pin-delete-${pin.id}`}
+                  >
+                    <Trash2 size={12} color="#8b0000" />
+                  </Pressable>
                 </View>
-                <Pressable
-                  style={styles.pinActionBtn}
-                  onPress={() => setEditingPin(pin)}
-                  testID={`pin-edit-${pin.id}`}
-                >
-                  <Pencil size={12} color="#7a5c2e" />
-                </Pressable>
-                <Pressable
-                  style={[styles.pinActionBtn, styles.pinDeleteBtn]}
-                  onPress={() => setDeletingPin(pin)}
-                  testID={`pin-delete-${pin.id}`}
-                >
-                  <Trash2 size={12} color="#8b0000" />
-                </Pressable>
-              </View>
-            );
-          })}
-        </ScrollView>
+              );
+            })}
+          </ScrollView>
+        ) : null}
       </View>
     );
   };
@@ -830,12 +856,23 @@ const styles = StyleSheet.create({
   // Pin list
   pinList: {
     paddingHorizontal: 10,
-    paddingTop: 9,
-    paddingBottom: 6,
+    paddingBottom: 4,
     borderTopWidth: 1,
     borderTopColor: 'rgba(139,90,0,0.15)',
   },
-  pinListTitle: { fontSize: 8, fontWeight: '800', color: '#9a7c4e', letterSpacing: 2, marginBottom: 7 },
+  pinListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 9,
+    paddingHorizontal: 2,
+  },
+  pinListHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pinListTitle: { fontSize: 8, fontWeight: '800', color: '#9a7c4e', letterSpacing: 2 },
   pinScroll: { maxHeight: 160 },
   pinRow: {
     flexDirection: 'row',
