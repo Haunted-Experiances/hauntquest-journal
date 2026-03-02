@@ -5,10 +5,12 @@ import {
   StyleSheet,
   FlatList,
   StatusBar,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BookOpen } from 'lucide-react-native';
+import { BookOpen, ChevronDown } from 'lucide-react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate } from 'react-native-reanimated';
 import {
   useFonts as useCinzelFonts,
   Cinzel_700Bold,
@@ -62,6 +64,18 @@ export function JournalTab({
   const allEntries = useJournalStore((s) => s.entries);
   const deleteEntry = useJournalStore((s) => s.deleteEntry);
   const entries = allEntries.filter((e) => e.category === category);
+
+  const [recordsExpanded, setRecordsExpanded] = React.useState(false);
+  const chevronRotation = useSharedValue(0);
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
+
+  const handleToggleRecords = () => {
+    const next = !recordsExpanded;
+    setRecordsExpanded(next);
+    chevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+  };
 
   const titleFont = fontsLoaded ? 'Cinzel_900Black' : undefined;
   const bodyFont = fontsLoaded ? 'EBGaramond_400Regular' : undefined;
@@ -122,15 +136,18 @@ export function JournalTab({
         </View>
       ) : null}
 
-      {/* Section header */}
-      <View style={styles.sectionHeader}>
+      {/* Field Records collapsible header */}
+      <Pressable style={styles.sectionHeader} onPress={handleToggleRecords}>
         <View style={styles.sectionLine} />
         <BookOpen size={14} color="#9a7c4e" />
         <Text style={[styles.sectionTitle, { fontFamily: bodyBoldFont }]}>
-          FIELD RECORDS
+          FIELD RECORDS {entries.length > 0 ? `(${entries.length})` : ''}
         </Text>
+        <Animated.View style={chevronStyle}>
+          <ChevronDown size={13} color="#9a7c4e" />
+        </Animated.View>
         <View style={styles.sectionLine} />
-      </View>
+      </Pressable>
     </View>
   );
 
@@ -182,11 +199,11 @@ export function JournalTab({
 
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <FlatList
-          data={entries}
+          data={recordsExpanded ? entries : []}
           keyExtractor={(item) => item.id}
           renderItem={renderEntry}
           ListHeaderComponent={<ListHeader />}
-          ListEmptyComponent={<ListEmpty />}
+          ListEmptyComponent={recordsExpanded ? <ListEmpty /> : null}
           ListFooterComponent={<ListFooter />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -334,7 +351,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 8,
+    paddingVertical: 10,
+    marginBottom: 4,
     gap: 8,
   },
   sectionLine: {
