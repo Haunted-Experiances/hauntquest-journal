@@ -1,4 +1,5 @@
 import { fetch } from "expo/fetch";
+import { authClient } from "../auth/auth-client";
 
 // Response envelope type - all app routes return { data: T }
 interface ApiResponse<T> {
@@ -11,9 +12,14 @@ const request = async <T>(
   url: string,
   options: { method?: string; body?: string } = {}
 ): Promise<T> => {
+  const cookieHeader = authClient.getCookie();
   const response = await fetch(`${baseUrl}${url}`, {
     ...options,
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    credentials: "include",
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
   });
 
   // 1. Handle 204 No Content
@@ -34,11 +40,11 @@ const request = async <T>(
 
 export const api = {
   get: <T>(url: string) => request<T>(url),
-  post: <T>(url: string, body: any) =>
+  post: <T>(url: string, body: unknown) =>
     request<T>(url, { method: "POST", body: JSON.stringify(body) }),
-  put: <T>(url: string, body: any) =>
+  put: <T>(url: string, body: unknown) =>
     request<T>(url, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(url: string) => request<T>(url, { method: "DELETE" }),
-  patch: <T>(url: string, body: any) =>
+  patch: <T>(url: string, body: unknown) =>
     request<T>(url, { method: "PATCH", body: JSON.stringify(body) }),
 };

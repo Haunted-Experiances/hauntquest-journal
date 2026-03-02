@@ -6,6 +6,7 @@ import { useColorScheme } from '@/lib/useColorScheme';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { useSession } from '@/lib/auth/use-session';
 
 export const unstable_settings = {
   // Ensure that reloading on `/modal` keeps a back button present.
@@ -18,17 +19,27 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null | undefined }) {
+  const { data: session, isLoading } = useSession();
+
+  if (isLoading) return null;
+
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="journal/real-hauntings" options={{ headerShown: false }} />
-        <Stack.Screen name="journal/poltergeist" options={{ headerShown: false }} />
-        <Stack.Screen name="journal/ghost-sightings" options={{ headerShown: false }} />
-        <Stack.Screen name="journal/evp" options={{ headerShown: false }} />
-        <Stack.Screen name="journal/emf" options={{ headerShown: false }} />
-        <Stack.Screen name="journal/real-video" options={{ headerShown: false }} />
+        <Stack.Protected guard={!!session?.user}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="journal/real-hauntings" options={{ headerShown: false }} />
+          <Stack.Screen name="journal/poltergeist" options={{ headerShown: false }} />
+          <Stack.Screen name="journal/ghost-sightings" options={{ headerShown: false }} />
+          <Stack.Screen name="journal/evp" options={{ headerShown: false }} />
+          <Stack.Screen name="journal/emf" options={{ headerShown: false }} />
+          <Stack.Screen name="journal/real-video" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={!session?.user}>
+          <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+          <Stack.Screen name="verify-otp" options={{ headerShown: false }} />
+        </Stack.Protected>
       </Stack>
     </ThemeProvider>
   );

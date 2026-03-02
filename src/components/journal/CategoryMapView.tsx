@@ -8,11 +8,16 @@ import {
   Modal,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Map, Navigation, ChevronDown } from 'lucide-react-native';
+import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Map, Navigation, ChevronDown, Globe } from 'lucide-react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate } from 'react-native-reanimated';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { MapPin, useJournalStore } from './JournalStore';
+import { useSession } from '@/lib/auth/use-session';
+import { api } from '@/lib/api/api';
 
 // ─── Platform guards ─────────────────────────────────────────────────────────
 const isNative = Platform.OS !== 'web';
@@ -49,21 +54,36 @@ const PIN_TYPES: PinType[] = [
 ];
 
 function getPinType(pin: MapPin): PinType {
-  // Match by color first
   const match = PIN_TYPES.find((pt) => pt.color === pin.color);
   return match ?? PIN_TYPES[0];
 }
 
 function getPinNote(pin: MapPin): string {
-  // Label is stored as "TypeName: note" or just "TypeName"
   const colonIdx = pin.label.indexOf(': ');
   if (colonIdx !== -1) return pin.label.slice(colonIdx + 2);
   return '';
 }
 
+// ─── Worldwide pin type ───────────────────────────────────────────────────────
+interface WorldwidePin {
+  id: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+  color: string;
+  emoji: string;
+  pinType: string;
+  note: string;
+  category: string;
+  userId: string;
+  userName: string;
+  createdAt: string;
+}
+
 // ─── Leaflet HTML builder ─────────────────────────────────────────────────────
 function buildLeafletHTML(
   pins: MapPin[],
+  worldwidePins: WorldwidePin[],
   centerLat: number,
   centerLng: number,
   addingPin: boolean,
@@ -79,8 +99,21 @@ function buildLeafletHTML(
         label: p.label,
         color: p.color,
         emoji: pt.emoji,
+        worldwide: false,
       };
     }),
+  );
+
+  const worldwidePinsJson = JSON.stringify(
+    worldwidePins.map((p) => ({
+      id: p.id,
+      lat: p.latitude,
+      lng: p.longitude,
+      label: p.label,
+      color: p.color,
+      emoji: p.emoji,
+      worldwide: true,
+    })),
   );
 
   const canTap = addingPin && selectedPinType !== null;
@@ -112,6 +145,10 @@ html, body { width:100%; height:100%; background:#e8dfc8; }
   transform:rotate(45deg);
   line-height:1;
 }
+.worldwide-marker {
+  border:2.5px solid #1a237e !important;
+  box-shadow:0 2px 10px rgba(26,35,126,0.5) !important;
+}
 .pin-tooltip {
   background:#f5e6c8 !important;
   border:1.5px solid #7a5c2e !important;
@@ -123,6 +160,11 @@ html, body { width:100%; height:100%; background:#e8dfc8; }
   color:#3d2600 !important;
   white-space:nowrap !important;
   box-shadow:none !important;
+}
+.worldwide-tooltip {
+  background:#e8eaf6 !important;
+  border:1.5px solid #1a237e !important;
+  color:#1a237e !important;
 }
 .pin-tooltip::before { display:none !important; }
 .leaflet-tooltip-left::before, .leaflet-tooltip-right::before { display:none !important; }
@@ -137,12 +179,14 @@ html, body { width:100%; height:100%; background:#e8dfc8; }
   var centerLng=${centerLng};
   var canTap=${canTap ? 'true' : 'false'};
   var pins=${pinsJson};
+  var worldwidePins=${worldwidePinsJson};
 
   var map=L.map('map',{zoomControl:true,attributionControl:false}).setView([centerLat,centerLng],6);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 
-  function makeIcon(color,emoji){
-    var html='<div class="custom-marker" style="background:'+color+'"><span class="custom-marker-inner">'+emoji+'</span></div>';
+  function makeIcon(color,emoji,worldwide){
+    var extra=worldwide?' worldwide-marker':'';
+    var html='<div class="custom-marker'+extra+'" style="background:'+color+'"><span class="custom-marker-inner">'+emoji+'</span></div>';
     return L.divIcon({
       html:html,
       className:'',
@@ -153,12 +197,24 @@ html, body { width:100%; height:100%; background:#e8dfc8; }
   }
 
   pins.forEach(function(pin){
-    var marker=L.marker([pin.lat,pin.lng],{icon:makeIcon(pin.color,pin.emoji)}).addTo(map);
+    var marker=L.marker([pin.lat,pin.lng],{icon:makeIcon(pin.color,pin.emoji,false)}).addTo(map);
     if(pin.label){
       marker.bindTooltip(pin.label,{
         permanent:true,
         direction:'top',
         className:'pin-tooltip',
+        offset:[0,-4],
+      });
+    }
+  });
+
+  worldwidePins.forEach(function(pin){
+    var marker=L.marker([pin.lat,pin.lng],{icon:makeIcon(pin.color,pin.emoji,true)}).addTo(map);
+    if(pin.label){
+      marker.bindTooltip('🌍 '+pin.label,{
+        permanent:true,
+        direction:'top',
+        className:'pin-tooltip worldwide-tooltip',
         offset:[0,-4],
       });
     }
@@ -234,7 +290,6 @@ function EditLabelModal({ visible, pin, onSave, onCancel }: EditLabelModalProps)
         <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
           <Text style={modalStyles.title}>EDIT PIN NOTE</Text>
 
-          {/* Type badge — read-only */}
           <View style={[modalStyles.typeBadge, { borderColor: pt.color }]}>
             <Text style={modalStyles.typeBadgeEmoji}>{pt.emoji}</Text>
             <Text style={[modalStyles.typeBadgeName, { color: pt.color }]}>{pt.name}</Text>
@@ -278,11 +333,12 @@ function EditLabelModal({ visible, pin, onSave, onCancel }: EditLabelModalProps)
 interface NewPinModalProps {
   visible: boolean;
   pinType: PinType | null;
+  pinTarget: 'local' | 'worldwide';
   onSave: (note: string) => void;
   onCancel: () => void;
 }
 
-function NewPinModal({ visible, pinType, onSave, onCancel }: NewPinModalProps) {
+function NewPinModal({ visible, pinType, pinTarget, onSave, onCancel }: NewPinModalProps) {
   const [note, setNote] = useState('');
 
   useEffect(() => {
@@ -295,7 +351,9 @@ function NewPinModal({ visible, pinType, onSave, onCancel }: NewPinModalProps) {
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <Pressable style={modalStyles.backdrop} onPress={onCancel}>
         <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={modalStyles.title}>STICK PIN</Text>
+          <Text style={modalStyles.title}>
+            {pinTarget === 'worldwide' ? '🌍 SHARE WORLDWIDE' : 'STICK PIN'}
+          </Text>
 
           <View style={[modalStyles.typeBadge, { borderColor: pinType.color }]}>
             <Text style={modalStyles.typeBadgeEmoji}>{pinType.emoji}</Text>
@@ -323,12 +381,14 @@ function NewPinModal({ visible, pinType, onSave, onCancel }: NewPinModalProps) {
               <Text style={modalStyles.cancelText}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[modalStyles.saveBtn, { backgroundColor: pinType.color }]}
+              style={[modalStyles.saveBtn, { backgroundColor: pinTarget === 'worldwide' ? '#1a237e' : pinType.color }]}
               onPress={() => onSave(note)}
               testID="new-pin-save-button"
             >
               <Check size={14} color="#f5e4bb" />
-              <Text style={modalStyles.saveBtnText}>Stick Pin</Text>
+              <Text style={modalStyles.saveBtnText}>
+                {pinTarget === 'worldwide' ? 'Share' : 'Stick Pin'}
+              </Text>
             </Pressable>
           </View>
         </Pressable>
@@ -349,27 +409,73 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
   const updateCategoryPin = useJournalStore((s) => s.updateCategoryPin);
   const deleteCategoryPin = useJournalStore((s) => s.deleteCategoryPin);
 
+  const { data: session } = useSession();
+  const queryClient = useQueryClient();
+
   const pins: MapPin[] = categoryMaps[category] ?? [];
+
+  // ─── Worldwide pins query ──────────────────────────────────────────────────
+  const { data: worldwidePins = [], isLoading: wwLoading } = useQuery<WorldwidePin[]>({
+    queryKey: ['worldwide-pins', category],
+    queryFn: () => api.get<WorldwidePin[]>(`/api/worldwide-pins?category=${encodeURIComponent(category)}`),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  // ─── Add worldwide pin mutation ───────────────────────────────────────────
+  const { mutate: addWorldwidePin } = useMutation({
+    mutationFn: (body: {
+      latitude: number;
+      longitude: number;
+      label: string;
+      color: string;
+      emoji: string;
+      pinType: string;
+      note: string;
+      category: string;
+    }) => api.post<WorldwidePin>('/api/worldwide-pins', body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['worldwide-pins', category] });
+      if (isNative) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+  });
+
+  // ─── Delete worldwide pin mutation ────────────────────────────────────────
+  const { mutate: deleteWorldwidePin } = useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/api/worldwide-pins/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['worldwide-pins', category] });
+      if (isNative) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    },
+  });
 
   const mapRef = useRef<any>(null);
   const addingPinRef = useRef(false);
   const selectedPinTypeRef = useRef<PinType | null>(null);
 
   const [addingPin, setAddingPin] = useState(false);
+  const [pinTarget, setPinTarget] = useState<'local' | 'worldwide'>('local');
   const [selectedPinType, setSelectedPinType] = useState<PinType | null>(null);
   const [pendingCoords, setPendingCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [showNewPinModal, setShowNewPinModal] = useState(false);
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
   const [deletingPin, setDeletingPin] = useState<MapPin | null>(null);
+  const [deletingWorldwidePin, setDeletingWorldwidePin] = useState<WorldwidePin | null>(null);
   const [locating, setLocating] = useState(false);
   const [pinsExpanded, setPinsExpanded] = useState(false);
+  const [wwPinsExpanded, setWwPinsExpanded] = useState(false);
+  const [wwError, setWwError] = useState<string | null>(null);
 
   const chevronRotation = useSharedValue(0);
   const chevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
   }));
 
-  // Keep refs in sync for closure-safe access
+  const wwChevronRotation = useSharedValue(0);
+  const wwChevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(wwChevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
+
   addingPinRef.current = addingPin;
   selectedPinTypeRef.current = selectedPinType;
 
@@ -379,12 +485,14 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
   const handleStartAdding = useCallback(() => {
     setAddingPin(true);
     setSelectedPinType(null);
+    setWwError(null);
   }, []);
 
   const handleDoneAdding = useCallback(() => {
     setAddingPin(false);
     setSelectedPinType(null);
     setPendingCoords(null);
+    setWwError(null);
   }, []);
 
   const handleMapTap = useCallback((lat: number, lng: number) => {
@@ -397,7 +505,6 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
     }
   }, []);
 
-  // Web: listen for postMessage from srcdoc iframe
   useEffect(() => {
     if (isNative) return;
     const handler = (ev: MessageEvent) => {
@@ -414,26 +521,48 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
 
   const handleSaveNewPin = useCallback((note: string) => {
     if (!pendingCoords || !selectedPinType) return;
+
     const label = note.trim()
       ? `${selectedPinType.name}: ${note.trim()}`
       : selectedPinType.name;
-    const pin: MapPin = {
-      id: `pin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      latitude: pendingCoords.latitude,
-      longitude: pendingCoords.longitude,
-      label,
-      color: selectedPinType.color,
-      createdAt: new Date().toISOString(),
-    };
-    addCategoryPin(category, pin);
-    if (isNative) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    if (pinTarget === 'worldwide') {
+      if (!session?.user) {
+        setWwError('Sign in to share pins worldwide');
+        setShowNewPinModal(false);
+        setPendingCoords(null);
+        return;
+      }
+      addWorldwidePin({
+        latitude: pendingCoords.latitude,
+        longitude: pendingCoords.longitude,
+        label,
+        color: selectedPinType.color,
+        emoji: selectedPinType.emoji,
+        pinType: selectedPinType.name,
+        note: note.trim(),
+        category,
+      });
+    } else {
+      const pin: MapPin = {
+        id: `pin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        latitude: pendingCoords.latitude,
+        longitude: pendingCoords.longitude,
+        label,
+        color: selectedPinType.color,
+        createdAt: new Date().toISOString(),
+      };
+      addCategoryPin(category, pin);
+      if (isNative) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     }
+
     setShowNewPinModal(false);
     setPendingCoords(null);
     setAddingPin(false);
     setSelectedPinType(null);
-  }, [pendingCoords, selectedPinType, category, addCategoryPin]);
+  }, [pendingCoords, selectedPinType, pinTarget, session, category, addCategoryPin, addWorldwidePin]);
 
   const handleSaveEditPin = useCallback((note: string) => {
     if (!editingPin) return;
@@ -455,6 +584,12 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
     setDeletingPin(null);
   }, [deletingPin, category, deleteCategoryPin]);
 
+  const handleConfirmDeleteWorldwide = useCallback(() => {
+    if (!deletingWorldwidePin) return;
+    deleteWorldwidePin(deletingWorldwidePin.id);
+    setDeletingWorldwidePin(null);
+  }, [deletingWorldwidePin, deleteWorldwidePin]);
+
   const goToCurrentLocation = useCallback(async () => {
     if (!isNative || !Location) return;
     setLocating(true);
@@ -473,7 +608,7 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
     }
   }, []);
 
-  // ─── Shared sub-components ─────────────────────────────────────────────────
+  // ─── Sub-components ─────────────────────────────────────────────────────────
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -506,6 +641,39 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
     if (!addingPin) return null;
     return (
       <View style={styles.pinTypeSelectorWrap}>
+        {/* Target toggle */}
+        <View style={styles.pinTargetToggle}>
+          <Pressable
+            style={[styles.pinTargetBtn, pinTarget === 'local' && styles.pinTargetBtnActive]}
+            onPress={() => { setPinTarget('local'); setWwError(null); }}
+            testID="pin-target-local"
+          >
+            <MapPinIcon size={10} color={pinTarget === 'local' ? '#f5e6c8' : '#7a5c2e'} />
+            <Text style={[styles.pinTargetBtnText, pinTarget === 'local' && styles.pinTargetBtnTextActive]}>
+              MY PINS
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.pinTargetBtn, pinTarget === 'worldwide' && styles.pinTargetBtnActiveWW]}
+            onPress={() => { setPinTarget('worldwide'); setWwError(null); }}
+            testID="pin-target-worldwide"
+          >
+            <Globe size={10} color={pinTarget === 'worldwide' ? '#f5e6c8' : '#1a237e'} />
+            <Text style={[styles.pinTargetBtnText, pinTarget === 'worldwide' && styles.pinTargetBtnTextActive]}>
+              WORLDWIDE
+            </Text>
+          </Pressable>
+        </View>
+
+        {wwError ? (
+          <View style={styles.wwErrorBanner}>
+            <Text style={styles.wwErrorText}>{wwError}</Text>
+            <Pressable onPress={() => router.push('/sign-in' as any)} style={styles.wwSignInBtn}>
+              <Text style={styles.wwSignInBtnText}>Sign In</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <Text style={styles.pinTypeSelectorLabel}>
           {selectedPinType ? `TAP MAP TO PLACE ${selectedPinType.name.toUpperCase()}` : 'SELECT PIN TYPE'}
         </Text>
@@ -555,7 +723,7 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
         <Pressable style={styles.pinListHeader} onPress={handleToggle}>
           <View style={styles.pinListHeaderLeft}>
             <MapPinIcon size={11} color="#9a7c4e" />
-            <Text style={styles.pinListTitle}>SAVED PINS ({pins.length})</Text>
+            <Text style={styles.pinListTitle}>MY PINS ({pins.length})</Text>
           </View>
           <Animated.View style={chevronStyle}>
             <ChevronDown size={14} color="#9a7c4e" />
@@ -608,11 +776,98 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
     );
   };
 
+  const renderWorldwidePinList = () => {
+    const handleToggle = () => {
+      const next = !wwPinsExpanded;
+      setWwPinsExpanded(next);
+      wwChevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+      if (isNative) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    };
+
+    return (
+      <View style={styles.wwPinList}>
+        <Pressable style={styles.wwPinListHeader} onPress={handleToggle} testID="worldwide-pins-toggle">
+          <View style={styles.pinListHeaderLeft}>
+            <Globe size={11} color="#3949ab" />
+            <Text style={styles.wwPinListTitle}>
+              WORLDWIDE PINS {wwLoading ? '' : `(${worldwidePins.length})`}
+            </Text>
+            {wwLoading ? <ActivityIndicator size="small" color="#3949ab" /> : null}
+          </View>
+          <Animated.View style={wwChevronStyle}>
+            <ChevronDown size={14} color="#3949ab" />
+          </Animated.View>
+        </Pressable>
+
+        {wwPinsExpanded ? (
+          !session?.user ? (
+            <View style={styles.wwSignInPrompt}>
+              <Globe size={20} color="#3949ab" />
+              <Text style={styles.wwSignInPromptText}>
+                Sign in to see & share worldwide pins from investigators everywhere
+              </Text>
+              <Pressable
+                style={styles.wwSignInPromptBtn}
+                onPress={() => router.push('/sign-in' as any)}
+                testID="worldwide-sign-in-button"
+              >
+                <Text style={styles.wwSignInPromptBtnText}>SIGN IN</Text>
+              </Pressable>
+            </View>
+          ) : worldwidePins.length === 0 ? (
+            <View style={styles.wwEmptyState}>
+              <Text style={styles.wwEmptyText}>
+                No worldwide pins for this category yet.{'\n'}Be the first to share one!
+              </Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.pinScroll}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              {worldwidePins.map((pin) => {
+                const isOwn = pin.userId === session?.user?.id;
+                return (
+                  <View key={pin.id} style={styles.wwPinRow} testID={`ww-pin-row-${pin.id}`}>
+                    <View style={[styles.pinDot, { backgroundColor: pin.color }]}>
+                      <Text style={styles.pinDotEmoji}>{pin.emoji}</Text>
+                    </View>
+                    <View style={styles.pinInfo}>
+                      <View style={styles.pinInfoTop}>
+                        <Text style={[styles.pinTypeName, { color: pin.color }]}>{pin.pinType}</Text>
+                      </View>
+                      {pin.note ? <Text style={styles.pinNote}>{pin.note}</Text> : null}
+                      <Text style={styles.wwPinUser}>by {pin.userName}</Text>
+                      <Text style={styles.pinCoords}>
+                        {pin.latitude.toFixed(4)}, {pin.longitude.toFixed(4)}
+                      </Text>
+                    </View>
+                    {isOwn ? (
+                      <Pressable
+                        style={[styles.pinActionBtn, styles.pinDeleteBtn]}
+                        onPress={() => setDeletingWorldwidePin(pin)}
+                        testID={`ww-pin-delete-${pin.id}`}
+                      >
+                        <Trash2 size={12} color="#8b0000" />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )
+        ) : null}
+      </View>
+    );
+  };
+
   const renderModals = () => (
     <>
       <NewPinModal
         visible={showNewPinModal}
         pinType={selectedPinType}
+        pinTarget={pinTarget}
         onSave={handleSaveNewPin}
         onCancel={() => { setShowNewPinModal(false); setPendingCoords(null); }}
       />
@@ -628,14 +883,19 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeletingPin(null)}
       />
+      <DeleteConfirmModal
+        visible={deletingWorldwidePin !== null}
+        pinLabel={deletingWorldwidePin?.label ?? ''}
+        onConfirm={handleConfirmDeleteWorldwide}
+        onCancel={() => setDeletingWorldwidePin(null)}
+      />
     </>
   );
 
   // ─── Web: Leaflet via srcdoc iframe ──────────────────────────────────────────
   if (!isNative) {
-    const leafletHtml = buildLeafletHTML(pins, centerLat, centerLng, addingPin, selectedPinType);
-    // Key changes when relevant state changes so the iframe re-renders
-    const iframeKey = `${pins.length}-${addingPin}-${selectedPinType?.name ?? 'none'}`;
+    const leafletHtml = buildLeafletHTML(pins, worldwidePins, centerLat, centerLng, addingPin, selectedPinType);
+    const iframeKey = `${pins.length}-${worldwidePins.length}-${addingPin}-${selectedPinType?.name ?? 'none'}`;
 
     return (
       <View style={styles.container} testID="category-map-view">
@@ -651,7 +911,6 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
             title="Investigation Map"
             sandbox="allow-scripts allow-same-origin"
           />
-          {/* FAB: Add Pin */}
           {!addingPin ? (
             <Pressable
               style={styles.fab}
@@ -665,6 +924,7 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
         </View>
 
         {renderPinList()}
+        {renderWorldwidePinList()}
         {renderModals()}
       </View>
     );
@@ -703,7 +963,6 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
                 title={pt.name}
                 description={getPinNote(pin)}
               >
-                {/* Custom marker view */}
                 <View style={[styles.nativeMarker, { backgroundColor: pt.color }]}>
                   <Text style={styles.nativeMarkerEmoji}>{pt.emoji}</Text>
                 </View>
@@ -736,9 +995,20 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
               </Marker>
             );
           })}
+          {worldwidePins.map((pin) => (
+            <Marker
+              key={`ww-${pin.id}`}
+              coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+              title={`🌍 ${pin.pinType}`}
+              description={`${pin.note ? pin.note + ' · ' : ''}by ${pin.userName}`}
+            >
+              <View style={[styles.nativeMarker, styles.nativeMarkerWW, { backgroundColor: pin.color }]}>
+                <Text style={styles.nativeMarkerEmoji}>{pin.emoji}</Text>
+              </View>
+            </Marker>
+          ))}
         </MapView>
 
-        {/* FAB: Add Pin */}
         {!addingPin ? (
           <Pressable style={styles.fab} onPress={handleStartAdding} testID="add-pin-fab">
             <Plus size={16} color="#f5e6c8" />
@@ -748,6 +1018,7 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
       </View>
 
       {renderPinList()}
+      {renderWorldwidePinList()}
       {renderModals()}
     </View>
   );
@@ -795,9 +1066,62 @@ const styles = StyleSheet.create({
   },
   doneBtnText: { fontSize: 10, fontWeight: '800', color: '#f5e4bb', letterSpacing: 0.5 },
 
+  // Pin target toggle
+  pinTargetToggle: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  pinTargetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(139,90,0,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  pinTargetBtnActive: {
+    backgroundColor: '#5c2200',
+    borderColor: '#5c2200',
+  },
+  pinTargetBtnActiveWW: {
+    backgroundColor: '#1a237e',
+    borderColor: '#1a237e',
+  },
+  pinTargetBtnText: { fontSize: 9, fontWeight: '800', color: '#7a5c2e', letterSpacing: 1 },
+  pinTargetBtnTextActive: { color: '#f5e6c8' },
+
+  // WW error banner
+  wwErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 12,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(139,0,0,0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(139,0,0,0.25)',
+  },
+  wwErrorText: { flex: 1, fontSize: 10, color: '#8b0000', fontStyle: 'italic' },
+  wwSignInBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#1a237e',
+    borderRadius: 6,
+  },
+  wwSignInBtnText: { fontSize: 9, fontWeight: '800', color: '#f5e6c8', letterSpacing: 1 },
+
   // Pin type selector
   pinTypeSelectorWrap: {
-    paddingTop: 8,
+    paddingTop: 4,
     paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(139,90,0,0.12)',
@@ -853,7 +1177,7 @@ const styles = StyleSheet.create({
   },
   fabText: { fontSize: 12, fontWeight: '800', color: '#f5e6c8', letterSpacing: 0.5 },
 
-  // Pin list
+  // Pin list (local)
   pinList: {
     paddingHorizontal: 10,
     paddingBottom: 4,
@@ -916,6 +1240,65 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(139,0,0,0.2)',
   },
 
+  // Worldwide pin list
+  wwPinList: {
+    paddingHorizontal: 10,
+    paddingBottom: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(26,35,126,0.2)',
+    backgroundColor: 'rgba(232,234,246,0.08)',
+  },
+  wwPinListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 9,
+    paddingHorizontal: 2,
+  },
+  wwPinListTitle: { fontSize: 8, fontWeight: '800', color: '#3949ab', letterSpacing: 2 },
+  wwPinRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(26,35,126,0.08)',
+  },
+  wwPinUser: { fontSize: 9, color: '#3949ab', fontStyle: 'italic' },
+  wwSignInPrompt: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  wwSignInPromptText: {
+    fontSize: 11,
+    color: '#7a7c9e',
+    textAlign: 'center',
+    lineHeight: 16,
+    fontStyle: 'italic',
+  },
+  wwSignInPromptBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#1a237e',
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  wwSignInPromptBtnText: { fontSize: 11, fontWeight: '900', color: '#e8eaf6', letterSpacing: 2 },
+  wwEmptyState: {
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  wwEmptyText: {
+    fontSize: 11,
+    color: '#7a7c9e',
+    textAlign: 'center',
+    lineHeight: 16,
+    fontStyle: 'italic',
+  },
+
   // Native marker
   nativeMarker: {
     width: 34,
@@ -930,6 +1313,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 3,
     elevation: 4,
+  },
+  nativeMarkerWW: {
+    borderColor: '#1a237e',
+    borderWidth: 2.5,
   },
   nativeMarkerEmoji: { fontSize: 16 },
 

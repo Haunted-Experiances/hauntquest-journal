@@ -9,11 +9,16 @@ import {
   Modal,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Navigation, Map, ChevronDown } from 'lucide-react-native';
+import { MapPin as MapPinIcon, Plus, Trash2, Pencil, Check, X, Navigation, Map, ChevronDown, Globe } from 'lucide-react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate } from 'react-native-reanimated';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { MapPin, useJournalStore } from './JournalStore';
+import { useSession } from '@/lib/auth/use-session';
+import { api } from '@/lib/api/api';
 
 // react-native-maps only works on native (iOS/Android), not web
 const isNative = Platform.OS !== 'web';
@@ -48,11 +53,28 @@ const PIN_COLORS = [
   { value: '#f06292', label: 'Pink' },
 ];
 
+// ─── Worldwide pin type ───────────────────────────────────────────────────────
+interface WorldwidePin {
+  id: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+  color: string;
+  emoji: string;
+  pinType: string;
+  note: string;
+  category: string;
+  userId: string;
+  userName: string;
+  createdAt: string;
+}
+
 interface EntryMapViewProps {
   entryId: string;
   pins: MapPin[];
   initialLatitude?: number;
   initialLongitude?: number;
+  category?: string;
 }
 
 interface PinEditModalProps {
@@ -128,6 +150,7 @@ function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
 
 function buildLeafletHTML(
   pins: MapPin[],
+  worldwidePins: WorldwidePin[],
   centerLat: number,
   centerLng: number,
   addingPin: boolean,
@@ -139,6 +162,19 @@ function buildLeafletHTML(
       lng: p.longitude,
       label: p.label,
       color: p.color,
+      worldwide: false,
+    })),
+  );
+
+  const wwPinsJson = JSON.stringify(
+    worldwidePins.map((p) => ({
+      id: p.id,
+      lat: p.latitude,
+      lng: p.longitude,
+      label: p.label,
+      color: p.color,
+      emoji: p.emoji,
+      worldwide: true,
     })),
   );
 
@@ -166,8 +202,10 @@ function buildLeafletHTML(
     white-space: nowrap;
     margin-top: -2px;
   }
-  .adding-mode .leaflet-container {
-    cursor: crosshair !important;
+  .ww-pin-label {
+    background: #e8eaf6;
+    border: 2px solid #1a237e;
+    color: #1a237e;
   }
 </style>
 </head>
@@ -180,6 +218,7 @@ function buildLeafletHTML(
     var centerLng = ${centerLng};
     var addingPin = ${addingPin ? 'true' : 'false'};
     var pins = ${pinsJson};
+    var wwPins = ${wwPinsJson};
 
     var map = L.map('map', {
       zoomControl: true,
@@ -204,6 +243,17 @@ function buildLeafletHTML(
       });
     }
 
+    function makeWWIcon(color, emoji) {
+      var html = '<div style="background:' + color + ';width:32px;height:32px;border-radius:50%;border:2.5px solid #1a237e;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 2px 8px rgba(26,35,126,0.4)">' + (emoji || '📍') + '</div>';
+      return L.divIcon({
+        html: html,
+        className: '',
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+        popupAnchor: [0, -34],
+      });
+    }
+
     pins.forEach(function(pin) {
       var marker = L.marker([pin.lat, pin.lng], { icon: makeIcon(pin.color) }).addTo(map);
       if (pin.label) {
@@ -211,6 +261,18 @@ function buildLeafletHTML(
           permanent: true,
           direction: 'top',
           className: 'custom-pin-label',
+          offset: [0, -4],
+        });
+      }
+    });
+
+    wwPins.forEach(function(pin) {
+      var marker = L.marker([pin.lat, pin.lng], { icon: makeWWIcon(pin.color, pin.emoji) }).addTo(map);
+      if (pin.label) {
+        marker.bindTooltip('🌍 ' + pin.label, {
+          permanent: true,
+          direction: 'top',
+          className: 'custom-pin-label ww-pin-label',
           offset: [0, -4],
         });
       }
@@ -233,21 +295,67 @@ function buildLeafletHTML(
 </html>`;
 }
 
-export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude }: EntryMapViewProps) {
+export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude, category }: EntryMapViewProps) {
   const addPin = useJournalStore((s) => s.addPin);
   const updatePin = useJournalStore((s) => s.updatePin);
   const deletePin = useJournalStore((s) => s.deletePin);
 
+  const { data: session } = useSession();
+  const queryClient = useQueryClient();
+
+  // ─── Worldwide pins ────────────────────────────────────────────────────────
+  const wwCategory = category ?? 'entry';
+  const { data: worldwidePins = [], isLoading: wwLoading } = useQuery<WorldwidePin[]>({
+    queryKey: ['worldwide-pins', wwCategory],
+    queryFn: () => api.get<WorldwidePin[]>(`/api/worldwide-pins?category=${encodeURIComponent(wwCategory)}`),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const { mutate: addWorldwidePin } = useMutation({
+    mutationFn: (body: {
+      latitude: number;
+      longitude: number;
+      label: string;
+      color: string;
+      emoji: string;
+      pinType: string;
+      note: string;
+      category: string;
+    }) => api.post<WorldwidePin>('/api/worldwide-pins', body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['worldwide-pins', wwCategory] });
+      if (isNative) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+  });
+
+  const { mutate: deleteWorldwidePin } = useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/api/worldwide-pins/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['worldwide-pins', wwCategory] });
+      if (isNative) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    },
+  });
+
   const mapRef = useRef<any>(null);
   const [addingPin, setAddingPin] = useState(false);
+  const [pinTarget, setPinTarget] = useState<'local' | 'worldwide'>('local');
   const [editingPin, setEditingPin] = useState<MapPin | null>(null);
   const [newPinCoords, setNewPinCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [pinsExpanded, setPinsExpanded] = useState(false);
+  const [wwPinsExpanded, setWwPinsExpanded] = useState(false);
+  const [deletingWorldwidePin, setDeletingWorldwidePin] = useState<WorldwidePin | null>(null);
+  const [wwAddError, setWwAddError] = useState<string | null>(null);
 
   const chevronRotation = useSharedValue(0);
   const chevronAnimStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
+
+  const wwChevronRotation = useSharedValue(0);
+  const wwChevronAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(wwChevronRotation.value, [0, 1], [0, 180])}deg` }],
   }));
 
   const centerLat = initialLatitude ?? 54.5;
@@ -285,33 +393,65 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   const handleMapPress = useCallback((e: any) => {
     if (!addingPin) return;
     const coords = e.nativeEvent.coordinate;
-    setNewPinCoords(coords);
-    setEditingPin({
-      id: '__new__',
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-      label: '',
-      color: PIN_COLORS[0].value,
-      createdAt: new Date().toISOString(),
-    });
+    if (pinTarget === 'worldwide') {
+      if (!session?.user) {
+        setWwAddError('Sign in to share pins worldwide');
+        return;
+      }
+      // For worldwide on native, open edit modal using MapPin shape as proxy
+      setNewPinCoords(coords);
+      setEditingPin({
+        id: '__new_ww__',
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        label: '',
+        color: PIN_COLORS[0].value,
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      setNewPinCoords(coords);
+      setEditingPin({
+        id: '__new__',
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        label: '',
+        color: PIN_COLORS[0].value,
+        createdAt: new Date().toISOString(),
+      });
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [addingPin]);
+  }, [addingPin, pinTarget, session]);
 
-  // Handle messages posted from the WebView Leaflet map
   const handleWebViewMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'MAP_TAP' && addingPin) {
         const coords = { latitude: data.lat, longitude: data.lng };
-        setNewPinCoords(coords);
-        setEditingPin({
-          id: '__new__',
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          label: '',
-          color: PIN_COLORS[0].value,
-          createdAt: new Date().toISOString(),
-        });
+        if (pinTarget === 'worldwide') {
+          if (!session?.user) {
+            setWwAddError('Sign in to share pins worldwide');
+            return;
+          }
+          setNewPinCoords(coords);
+          setEditingPin({
+            id: '__new_ww__',
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            label: '',
+            color: PIN_COLORS[0].value,
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          setNewPinCoords(coords);
+          setEditingPin({
+            id: '__new__',
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            label: '',
+            color: PIN_COLORS[0].value,
+            createdAt: new Date().toISOString(),
+          });
+        }
         if (Platform.OS !== 'web') {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         }
@@ -319,26 +459,39 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
     } catch {
       // ignore malformed messages
     }
-  }, [addingPin]);
+  }, [addingPin, pinTarget, session]);
 
   const handleSaveNewPin = useCallback((label: string, color: string) => {
-    if (!newPinCoords) return;
-    const pin: MapPin = {
-      id: `pin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      latitude: newPinCoords.latitude,
-      longitude: newPinCoords.longitude,
-      label,
-      color,
-      createdAt: new Date().toISOString(),
-    };
-    addPin(entryId, pin);
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (!newPinCoords || !editingPin) return;
+    if (editingPin.id === '__new_ww__') {
+      addWorldwidePin({
+        latitude: newPinCoords.latitude,
+        longitude: newPinCoords.longitude,
+        label: label || 'Pin',
+        color,
+        emoji: '📍',
+        pinType: label || 'Pin',
+        note: '',
+        category: wwCategory,
+      });
+    } else {
+      const pin: MapPin = {
+        id: `pin-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        latitude: newPinCoords.latitude,
+        longitude: newPinCoords.longitude,
+        label,
+        color,
+        createdAt: new Date().toISOString(),
+      };
+      addPin(entryId, pin);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     }
     setEditingPin(null);
     setNewPinCoords(null);
     setAddingPin(false);
-  }, [newPinCoords, entryId, addPin]);
+  }, [newPinCoords, editingPin, addPin, addWorldwidePin, entryId, wwCategory]);
 
   const handleEditPin = useCallback((pin: MapPin) => {
     setNewPinCoords(null);
@@ -346,7 +499,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
   }, []);
 
   const handleSaveEditPin = useCallback((label: string, color: string) => {
-    if (!editingPin || editingPin.id === '__new__') return;
+    if (!editingPin || editingPin.id === '__new__' || editingPin.id === '__new_ww__') return;
     updatePin(entryId, editingPin.id, { label, color });
     if (Platform.OS !== 'web') {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -370,8 +523,15 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
     ]);
   }, [entryId, deletePin]);
 
-  const isNewPin = editingPin?.id === '__new__';
+  const handleConfirmDeleteWorldwide = useCallback(() => {
+    if (!deletingWorldwidePin) return;
+    deleteWorldwidePin(deletingWorldwidePin.id);
+    setDeletingWorldwidePin(null);
+  }, [deletingWorldwidePin, deleteWorldwidePin]);
 
+  const isNewPin = editingPin?.id === '__new__' || editingPin?.id === '__new_ww__';
+
+  // ─── Collapsible local pin list ────────────────────────────────────────────
   const collapsiblePinList = pins.length > 0 ? (
     <View style={styles.pinList}>
       <Pressable
@@ -385,7 +545,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
       >
         <View style={styles.pinListHeaderLeft}>
           <MapPinIcon size={11} color="#9a7c4e" />
-          <Text style={styles.pinListTitle}>SAVED PINS ({pins.length})</Text>
+          <Text style={styles.pinListTitle}>MY PINS ({pins.length})</Text>
         </View>
         <Animated.View style={chevronAnimStyle}>
           <ChevronDown size={14} color="#9a7c4e" />
@@ -416,6 +576,135 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
     </View>
   ) : null;
 
+  // ─── Collapsible worldwide pin list ───────────────────────────────────────
+  const collapsibleWorldwidePinList = (
+    <View style={styles.wwPinList}>
+      <Pressable
+        style={styles.wwPinListHeader}
+        onPress={() => {
+          const next = !wwPinsExpanded;
+          setWwPinsExpanded(next);
+          wwChevronRotation.value = withTiming(next ? 1 : 0, { duration: 220 });
+          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }}
+        testID="entry-worldwide-pins-toggle"
+      >
+        <View style={styles.pinListHeaderLeft}>
+          <Globe size={11} color="#3949ab" />
+          <Text style={styles.wwPinListTitle}>
+            WORLDWIDE PINS {wwLoading ? '' : `(${worldwidePins.length})`}
+          </Text>
+          {wwLoading ? <ActivityIndicator size="small" color="#3949ab" /> : null}
+        </View>
+        <Animated.View style={wwChevronAnimStyle}>
+          <ChevronDown size={14} color="#3949ab" />
+        </Animated.View>
+      </Pressable>
+
+      {wwPinsExpanded ? (
+        !session?.user ? (
+          <View style={styles.wwSignInPrompt}>
+            <Globe size={18} color="#3949ab" />
+            <Text style={styles.wwSignInPromptText}>
+              Sign in to see & share worldwide pins
+            </Text>
+            <Pressable
+              style={styles.wwSignInPromptBtn}
+              onPress={() => router.push('/sign-in' as any)}
+              testID="entry-worldwide-sign-in-button"
+            >
+              <Text style={styles.wwSignInPromptBtnText}>SIGN IN</Text>
+            </Pressable>
+          </View>
+        ) : worldwidePins.length === 0 ? (
+          <View style={styles.wwEmptyState}>
+            <Text style={styles.wwEmptyText}>No worldwide pins yet. Be the first!</Text>
+          </View>
+        ) : (
+          <ScrollView style={styles.pinScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+            {worldwidePins.map((pin) => {
+              const isOwn = pin.userId === session?.user?.id;
+              return (
+                <View key={pin.id} style={styles.wwPinRow} testID={`entry-ww-pin-row-${pin.id}`}>
+                  <View style={[styles.wwPinDot, { backgroundColor: pin.color }]}>
+                    <Text style={styles.wwPinEmoji}>{pin.emoji}</Text>
+                  </View>
+                  <View style={styles.pinInfo}>
+                    <Text style={[styles.pinLabel, { color: pin.color }]}>{pin.pinType}</Text>
+                    {pin.note ? <Text style={styles.wwPinNote}>{pin.note}</Text> : null}
+                    <Text style={styles.wwPinUser}>by {pin.userName}</Text>
+                    <Text style={styles.pinCoords}>
+                      {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}
+                    </Text>
+                  </View>
+                  {isOwn ? (
+                    <Pressable style={styles.pinDeleteBtn} onPress={() => setDeletingWorldwidePin(pin)}>
+                      <Trash2 size={11} color="#8b0000" />
+                    </Pressable>
+                  ) : null}
+                </View>
+              );
+            })}
+          </ScrollView>
+        )
+      ) : null}
+    </View>
+  );
+
+  // ─── Worldwide delete confirm modal ───────────────────────────────────────
+  const wwDeleteModal = (
+    <Modal
+      visible={deletingWorldwidePin !== null}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setDeletingWorldwidePin(null)}
+    >
+      <Pressable style={editModalStyles.backdrop} onPress={() => setDeletingWorldwidePin(null)}>
+        <Pressable style={editModalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+          <Text style={editModalStyles.title}>REMOVE WORLDWIDE PIN</Text>
+          <Text style={[editModalStyles.label, { marginBottom: 16, fontWeight: '400', fontSize: 13, letterSpacing: 0 }]}>
+            Remove your worldwide pin "{deletingWorldwidePin?.label}"?
+          </Text>
+          <View style={editModalStyles.actionRow}>
+            <Pressable style={editModalStyles.cancelBtn} onPress={() => setDeletingWorldwidePin(null)}>
+              <X size={14} color="#7a5c2e" />
+              <Text style={editModalStyles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable style={[editModalStyles.saveBtn, { backgroundColor: '#8b0000' }]} onPress={handleConfirmDeleteWorldwide}>
+              <Trash2 size={14} color="#f5e4bb" />
+              <Text style={editModalStyles.saveText}>Remove</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+
+  const renderPinTargetToggle = () => (
+    <View style={styles.pinTargetToggle}>
+      <Pressable
+        style={[styles.pinTargetBtn, pinTarget === 'local' && styles.pinTargetBtnActive]}
+        onPress={() => { setPinTarget('local'); setWwAddError(null); }}
+        testID="entry-pin-target-local"
+      >
+        <MapPinIcon size={10} color={pinTarget === 'local' ? '#f5e6c8' : '#7a5c2e'} />
+        <Text style={[styles.pinTargetBtnText, pinTarget === 'local' && styles.pinTargetBtnTextActive]}>
+          MY PINS
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[styles.pinTargetBtn, pinTarget === 'worldwide' && styles.pinTargetBtnActiveWW]}
+        onPress={() => { setPinTarget('worldwide'); setWwAddError(null); }}
+        testID="entry-pin-target-worldwide"
+      >
+        <Globe size={10} color={pinTarget === 'worldwide' ? '#f5e6c8' : '#1a237e'} />
+        <Text style={[styles.pinTargetBtnText, pinTarget === 'worldwide' && styles.pinTargetBtnTextActive]}>
+          WORLDWIDE
+        </Text>
+      </Pressable>
+    </View>
+  );
+
   // ─── WEB: Leaflet via WebView ────────────────────────────────────────────────
   if (!isNative) {
     if (!WebView) {
@@ -427,7 +716,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
       );
     }
 
-    const leafletHtml = buildLeafletHTML(pins, centerLat, centerLng, addingPin);
+    const leafletHtml = buildLeafletHTML(pins, worldwidePins, centerLat, centerLng, addingPin);
 
     return (
       <View style={styles.container}>
@@ -443,6 +732,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
               onPress={() => {
                 setAddingPin((v) => !v);
                 if (addingPin) setNewPinCoords(null);
+                setWwAddError(null);
               }}
             >
               {addingPin ? <X size={12} color="#8b0000" /> : <Plus size={12} color="#7a5c2e" />}
@@ -452,6 +742,17 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
             </Pressable>
           </View>
         </View>
+
+        {addingPin ? renderPinTargetToggle() : null}
+
+        {wwAddError ? (
+          <View style={styles.wwErrorBanner}>
+            <Text style={styles.wwErrorText}>{wwAddError}</Text>
+            <Pressable onPress={() => router.push('/sign-in' as any)} style={styles.wwSignInInlineBtn}>
+              <Text style={styles.wwSignInInlineBtnText}>Sign In</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {addingPin ? (
           <View style={styles.tapHint}>
@@ -472,16 +773,16 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
           />
         </View>
 
-        {/* Collapsible pin list */}
         {collapsiblePinList}
+        {collapsibleWorldwidePinList}
 
-        {/* Edit Modal */}
         <PinEditModal
           visible={editingPin !== null}
           pin={editingPin}
           onSave={isNewPin ? handleSaveNewPin : handleSaveEditPin}
           onCancel={() => { setEditingPin(null); setNewPinCoords(null); }}
         />
+        {wwDeleteModal}
       </View>
     );
   }
@@ -504,6 +805,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
             onPress={() => {
               setAddingPin((v) => !v);
               if (addingPin) setNewPinCoords(null);
+              setWwAddError(null);
             }}
           >
             {addingPin ? <X size={12} color="#8b0000" /> : <Plus size={12} color="#7a5c2e" />}
@@ -513,6 +815,17 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
           </Pressable>
         </View>
       </View>
+
+      {addingPin ? renderPinTargetToggle() : null}
+
+      {wwAddError ? (
+        <View style={styles.wwErrorBanner}>
+          <Text style={styles.wwErrorText}>{wwAddError}</Text>
+          <Pressable onPress={() => router.push('/sign-in' as any)} style={styles.wwSignInInlineBtn}>
+            <Text style={styles.wwSignInInlineBtnText}>Sign In</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {addingPin ? (
         <View style={styles.tapHint}>
@@ -541,11 +854,19 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
               onCalloutPress={() => handleEditPin(pin)}
             />
           ))}
+          {worldwidePins.map((pin) => (
+            <Marker
+              key={`ww-${pin.id}`}
+              coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+              title={`🌍 ${pin.pinType}`}
+              description={`${pin.note ? pin.note + ' · ' : ''}by ${pin.userName}`}
+            />
+          ))}
         </MapView>
       </View>
 
-      {/* Collapsible pin list */}
       {collapsiblePinList}
+      {collapsibleWorldwidePinList}
 
       {/* Edit Modal — for both new and existing pins */}
       <PinEditModal
@@ -554,6 +875,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude 
         onSave={isNewPin ? handleSaveNewPin : handleSaveEditPin}
         onCancel={() => { setEditingPin(null); setNewPinCoords(null); }}
       />
+      {wwDeleteModal}
     </View>
   );
 }
@@ -604,6 +926,55 @@ const styles = StyleSheet.create({
   },
   addPinText: { fontSize: 10, fontWeight: '700', color: '#7a5c2e', letterSpacing: 0.5 },
   addPinTextActive: { color: '#8b0000' },
+
+  // Pin target toggle
+  pinTargetToggle: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingTop: 7,
+    paddingBottom: 5,
+    backgroundColor: 'rgba(245,230,200,0.2)',
+  },
+  pinTargetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(139,90,0,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  pinTargetBtnActive: { backgroundColor: '#5c2200', borderColor: '#5c2200' },
+  pinTargetBtnActiveWW: { backgroundColor: '#1a237e', borderColor: '#1a237e' },
+  pinTargetBtnText: { fontSize: 9, fontWeight: '800', color: '#7a5c2e', letterSpacing: 1 },
+  pinTargetBtnTextActive: { color: '#f5e6c8' },
+
+  // WW error
+  wwErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 10,
+    marginVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(139,0,0,0.08)',
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(139,0,0,0.2)',
+  },
+  wwErrorText: { flex: 1, fontSize: 10, color: '#8b0000', fontStyle: 'italic' },
+  wwSignInInlineBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#1a237e',
+    borderRadius: 5,
+  },
+  wwSignInInlineBtnText: { fontSize: 9, fontWeight: '800', color: '#f5e6c8', letterSpacing: 0.5 },
+
   tapHint: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -617,6 +988,8 @@ const styles = StyleSheet.create({
   tapHintText: { fontSize: 10, color: '#8b3a00', fontStyle: 'italic' },
   mapWrapper: { height: 220, width: '100%' },
   map: { flex: 1 },
+
+  // Local pin list
   pinList: {
     paddingHorizontal: 10,
     paddingBottom: 4,
@@ -651,6 +1024,69 @@ const styles = StyleSheet.create({
   pinCoords: { fontSize: 9, color: '#9a7c4e', marginTop: 1, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
   pinEditBtn: { padding: 6 },
   pinDeleteBtn: { padding: 6 },
+
+  // Worldwide pin list
+  wwPinList: {
+    paddingHorizontal: 10,
+    paddingBottom: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(26,35,126,0.2)',
+    backgroundColor: 'rgba(232,234,246,0.06)',
+  },
+  wwPinListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+  },
+  wwPinListTitle: { fontSize: 8, fontWeight: '800', color: '#3949ab', letterSpacing: 2 },
+  wwPinRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(26,35,126,0.07)',
+  },
+  wwPinDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#1a237e',
+    flexShrink: 0,
+  },
+  wwPinEmoji: { fontSize: 13 },
+  wwPinNote: { fontSize: 10, color: '#5c3d10', fontStyle: 'italic' },
+  wwPinUser: { fontSize: 9, color: '#3949ab', fontStyle: 'italic' },
+  wwSignInPrompt: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    gap: 7,
+  },
+  wwSignInPromptText: {
+    fontSize: 11,
+    color: '#7a7c9e',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  wwSignInPromptBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    backgroundColor: '#1a237e',
+    borderRadius: 7,
+  },
+  wwSignInPromptBtnText: { fontSize: 10, fontWeight: '900', color: '#e8eaf6', letterSpacing: 2 },
+  wwEmptyState: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  wwEmptyText: { fontSize: 11, color: '#7a7c9e', textAlign: 'center', fontStyle: 'italic' },
+
   webFallback: {
     marginTop: 12,
     padding: 16,
