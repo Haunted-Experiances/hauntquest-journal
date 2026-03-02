@@ -338,6 +338,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
   const [locating, setLocating] = useState(false);
   const [pinsExpanded, setPinsExpanded] = useState(false);
   const [wwPinsExpanded, setWwPinsExpanded] = useState(false);
+  const [deletingLocalPin, setDeletingLocalPin] = useState<MapPin | null>(null);
   const [deletingWorldwidePin, setDeletingWorldwidePin] = useState<WorldwidePin | null>(null);
   const [wwAddError, setWwAddError] = useState<string | null>(null);
 
@@ -531,21 +532,18 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
     setEditingPin(null);
   }, [editingPin, entryId, updatePin]);
 
-  const handleDeletePin = useCallback((pinId: string) => {
-    Alert.alert('Delete Pin', 'Remove this pin from the map?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          deletePin(entryId, pinId);
-          if (Platform.OS !== 'web') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }
-        },
-      },
-    ]);
-  }, [entryId, deletePin]);
+  const handleDeletePin = useCallback((pin: MapPin) => {
+    setDeletingLocalPin(pin);
+  }, []);
+
+  const handleConfirmDeleteLocal = useCallback(() => {
+    if (!deletingLocalPin) return;
+    deletePin(entryId, deletingLocalPin.id);
+    setDeletingLocalPin(null);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [deletingLocalPin, entryId, deletePin]);
 
   const handleConfirmDeleteWorldwide = useCallback(() => {
     if (!deletingWorldwidePin) return;
@@ -595,7 +593,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
               <Pressable style={styles.pinEditBtn} onPress={() => handleEditPin(pin)}>
                 <Pencil size={11} color="#7a5c2e" />
               </Pressable>
-              <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin.id)}>
+              <Pressable style={styles.pinDeleteBtn} onPress={() => handleDeletePin(pin)}>
                 <Trash2 size={11} color="#8b0000" />
               </Pressable>
             </View>
@@ -683,6 +681,35 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
         )
       ) : null}
     </View>
+  );
+
+  // ─── Local pin delete confirm modal ───────────────────────────────────────
+  const localDeleteModal = (
+    <Modal
+      visible={deletingLocalPin !== null}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setDeletingLocalPin(null)}
+    >
+      <Pressable style={editModalStyles.backdrop} onPress={() => setDeletingLocalPin(null)}>
+        <View style={editModalStyles.sheet} onStartShouldSetResponder={() => true}>
+          <Text style={editModalStyles.title}>REMOVE PIN</Text>
+          <Text style={[editModalStyles.label, { marginBottom: 16, fontWeight: '400', fontSize: 13, letterSpacing: 0 }]}>
+            Remove pin "{deletingLocalPin?.label}" from the map?
+          </Text>
+          <View style={editModalStyles.actionRow}>
+            <Pressable style={editModalStyles.cancelBtn} onPress={() => setDeletingLocalPin(null)}>
+              <X size={14} color="#7a5c2e" />
+              <Text style={editModalStyles.cancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable style={[editModalStyles.saveBtn, { backgroundColor: '#8b0000' }]} onPress={handleConfirmDeleteLocal}>
+              <Trash2 size={14} color="#f5e4bb" />
+              <Text style={editModalStyles.saveText}>Remove</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Pressable>
+    </Modal>
   );
 
   // ─── Worldwide delete confirm modal ───────────────────────────────────────
@@ -823,6 +850,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
           onCancel={() => { setEditingPin(null); setNewPinCoords(null); }}
         />
         {wwDeleteModal}
+        {localDeleteModal}
       </View>
     );
   }
@@ -927,6 +955,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
         onCancel={() => { setEditingPin(null); setNewPinCoords(null); }}
       />
       {wwDeleteModal}
+      {localDeleteModal}
     </View>
   );
 }
