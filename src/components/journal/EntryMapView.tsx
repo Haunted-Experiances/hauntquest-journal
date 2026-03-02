@@ -724,11 +724,11 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
   // ─── WEB: Leaflet via iframe (no WebView needed) ─────────────────────────────
   if (!isNative) {
     const leafletHtml = buildLeafletHTML(
-      mapView === 'local' ? pins : [],
-      mapView === 'worldwide' ? worldwidePins : [],
+      pins,
+      wwPinsExpanded ? worldwidePins : [],
       centerLat, centerLng, addingPin,
     );
-    const iframeKey = `entry-${mapView}-${pins.length}-${worldwidePins.length}-${addingPin}`;
+    const iframeKey = `entry-${wwPinsExpanded}-${pins.length}-${worldwidePins.length}-${addingPin}`;
 
     return (
       <View style={styles.container}>
@@ -877,7 +877,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
           showsUserLocation
           showsMyLocationButton={false}
         >
-          {mapView === 'local' && pins.map((pin) => (
+          {pins.map((pin) => (
             <Marker
               key={pin.id}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
@@ -886,14 +886,14 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
               onCalloutPress={() => handleEditPin(pin)}
             />
           ))}
-          {mapView === 'worldwide' && worldwidePins.map((pin) => (
+          {wwPinsExpanded ? worldwidePins.map((pin) => (
             <Marker
               key={`ww-${pin.id}`}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
               title={`🌍 ${pin.pinType}`}
               description={`${pin.note ? pin.note + ' · ' : ''}by ${pin.userName}`}
             />
-          ))}
+          )) : null}
         </MapView>
       </View>
 
