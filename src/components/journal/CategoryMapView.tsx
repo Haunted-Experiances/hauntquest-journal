@@ -997,28 +997,13 @@ export function CategoryMapView({ category }: CategoryMapViewProps) {
                   <Text style={styles.nativeMarkerEmoji}>{pt.emoji}</Text>
                 </View>
                 {Callout ? (
-                  <Callout>
+                  <Callout tooltip={false}>
                     <View style={styles.callout}>
                       <Text style={styles.calloutType}>{pt.emoji} {pt.name}</Text>
                       {getPinNote(pin) ? (
                         <Text style={styles.calloutNote}>{getPinNote(pin)}</Text>
                       ) : null}
-                      <View style={styles.calloutActions}>
-                        <Pressable
-                          style={styles.calloutEditBtn}
-                          onPress={() => setEditingPin(pin)}
-                        >
-                          <Pencil size={11} color="#7a5c2e" />
-                          <Text style={styles.calloutEditText}>Edit</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.calloutDeleteBtn}
-                          onPress={() => setDeletingPin(pin)}
-                        >
-                          <Trash2 size={11} color="#8b0000" />
-                          <Text style={styles.calloutDeleteText}>Remove</Text>
-                        </Pressable>
-                      </View>
+                      <Text style={styles.calloutHint}>Edit or remove from MY PINS list</Text>
                     </View>
                   </Callout>
                 ) : null}
@@ -1374,7 +1359,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5e6c8',
   },
   calloutType: { fontSize: 12, fontWeight: '800', color: '#3d2600', marginBottom: 2 },
-  calloutNote: { fontSize: 10, color: '#5c3d10', fontStyle: 'italic', marginBottom: 6 },
+  calloutNote: { fontSize: 10, color: '#5c3d10', fontStyle: 'italic', marginBottom: 4 },
+  calloutHint: { fontSize: 9, color: '#9a7c4e', fontStyle: 'italic' },
   calloutActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
   calloutEditBtn: {
     flexDirection: 'row',
