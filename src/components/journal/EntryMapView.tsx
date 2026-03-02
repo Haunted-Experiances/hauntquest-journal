@@ -98,7 +98,7 @@ function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <Pressable style={editModalStyles.backdrop} onPress={onCancel}>
-        <Pressable style={editModalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+        <View style={editModalStyles.sheet} onStartShouldSetResponder={() => true}>
           <Text style={editModalStyles.title}>EDIT PIN</Text>
 
           <Text style={editModalStyles.label}>LABEL</Text>
@@ -142,7 +142,7 @@ function PinEditModal({ visible, pin, onSave, onCancel }: PinEditModalProps) {
               <Text style={editModalStyles.saveText}>Save</Text>
             </Pressable>
           </View>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -660,7 +660,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
       onRequestClose={() => setDeletingWorldwidePin(null)}
     >
       <Pressable style={editModalStyles.backdrop} onPress={() => setDeletingWorldwidePin(null)}>
-        <Pressable style={editModalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+        <View style={editModalStyles.sheet} onStartShouldSetResponder={() => true}>
           <Text style={editModalStyles.title}>REMOVE WORLDWIDE PIN</Text>
           <Text style={[editModalStyles.label, { marginBottom: 16, fontWeight: '400', fontSize: 13, letterSpacing: 0 }]}>
             Remove your worldwide pin "{deletingWorldwidePin?.label}"?
@@ -675,7 +675,7 @@ export function EntryMapView({ entryId, pins, initialLatitude, initialLongitude,
               <Text style={editModalStyles.saveText}>Remove</Text>
             </Pressable>
           </View>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );

@@ -245,7 +245,7 @@ function DeleteConfirmModal({ visible, pinLabel, onConfirm, onCancel }: DeleteCo
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <Pressable style={modalStyles.backdrop} onPress={onCancel}>
-        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+        <View style={modalStyles.sheet} onStartShouldSetResponder={() => true}>
           <Text style={modalStyles.title}>REMOVE PIN</Text>
           <Text style={modalStyles.deleteMsg}>
             Remove <Text style={modalStyles.deleteMsgBold}>{pinLabel}</Text> from the investigation map?
@@ -260,7 +260,7 @@ function DeleteConfirmModal({ visible, pinLabel, onConfirm, onCancel }: DeleteCo
               <Text style={modalStyles.deleteBtnText}>Remove</Text>
             </Pressable>
           </View>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -287,7 +287,7 @@ function EditLabelModal({ visible, pin, onSave, onCancel }: EditLabelModalProps)
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <Pressable style={modalStyles.backdrop} onPress={onCancel}>
-        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+        <View style={modalStyles.sheet} onStartShouldSetResponder={() => true}>
           <Text style={modalStyles.title}>EDIT PIN NOTE</Text>
 
           <View style={[modalStyles.typeBadge, { borderColor: pt.color }]}>
@@ -323,7 +323,7 @@ function EditLabelModal({ visible, pin, onSave, onCancel }: EditLabelModalProps)
               <Text style={modalStyles.saveBtnText}>Save</Text>
             </Pressable>
           </View>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -350,7 +350,7 @@ function NewPinModal({ visible, pinType, pinTarget, onSave, onCancel }: NewPinMo
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <Pressable style={modalStyles.backdrop} onPress={onCancel}>
-        <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+        <View style={modalStyles.sheet} onStartShouldSetResponder={() => true}>
           <Text style={modalStyles.title}>
             {pinTarget === 'worldwide' ? '🌍 SHARE WORLDWIDE' : 'STICK PIN'}
           </Text>
@@ -391,7 +391,7 @@ function NewPinModal({ visible, pinType, pinTarget, onSave, onCancel }: NewPinMo
               </Text>
             </Pressable>
           </View>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
