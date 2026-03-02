@@ -100,7 +100,7 @@ export function EntryCard({ entry, index, onDelete, activityTypes }: EntryCardPr
   };
 
   return (
-    <Pressable onPress={() => { if (!editing) setExpanded(!expanded); }}>
+    <View>
       <LinearGradient
         colors={['#f5e6c8', '#ede0b5', '#e8d8a0']}
         start={{ x: 0, y: 0 }}
@@ -109,16 +109,18 @@ export function EntryCard({ entry, index, onDelete, activityTypes }: EntryCardPr
       >
         <View style={styles.tornTop} />
 
-        {/* Header row */}
-        <View style={styles.headerRow}>
-          <View style={styles.entryBadge}>
-            <Text style={styles.entryBadgeText}>Entry #{entryNumber}</Text>
+        {/* Header row — tapping this toggles expand */}
+        <Pressable onPress={() => { if (!editing) setExpanded(!expanded); }}>
+          <View style={styles.headerRow}>
+            <View style={styles.entryBadge}>
+              <Text style={styles.entryBadgeText}>Entry #{entryNumber}</Text>
+            </View>
+            <View style={styles.headerRight}>
+              <View style={[styles.intensityDot, { backgroundColor: INTENSITY_COLORS[editing ? intensity : entry.intensity] ?? '#888' }]} />
+              <Text style={styles.intensityLabel}>{editing ? intensity : entry.intensity}</Text>
+            </View>
           </View>
-          <View style={styles.headerRight}>
-            <View style={[styles.intensityDot, { backgroundColor: INTENSITY_COLORS[editing ? intensity : entry.intensity] ?? '#888' }]} />
-            <Text style={styles.intensityLabel}>{editing ? intensity : entry.intensity}</Text>
-          </View>
-        </View>
+        </Pressable>
 
         {!editing ? (
           <>
@@ -353,7 +355,7 @@ export function EntryCard({ entry, index, onDelete, activityTypes }: EntryCardPr
 
         <View style={styles.tornBottom} />
       </LinearGradient>
-    </Pressable>
+    </View>
   );
 }
 
