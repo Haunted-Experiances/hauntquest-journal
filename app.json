@@ -9,7 +9,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.stephenmorgans.hauntquestjournal",
+      "bundleIdentifier": "com.vibecode.hauntquestjournal-44w3oy",
       "buildNumber": "3",
       "infoPlist": {
         "NSCameraUsageDescription": "HauntQuest Journal uses the camera to capture photos inside the app before you publish them.",
