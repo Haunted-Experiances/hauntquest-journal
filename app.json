@@ -3,7 +3,7 @@
     "name": "HauntQuest Journal",
     "slug": "hauntquest-journal",
     "scheme": "vibecode",
-    "version": "1.0.2",
+    "version": "1.2",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
