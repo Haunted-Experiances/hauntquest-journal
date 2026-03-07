@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "HauntQuest Journal",
+    "slug": "hauntquest-journal",
+    "scheme": "vibecode",
+    "version": "1.2",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.hauntedexperiences.hauntquestjournal",
+      "buildNumber": "4",
+      "infoPlist": {
+        "NSCameraUsageDescription": "HauntQuest Journal uses the camera to capture photos inside the app before you publish them.",
+        "NSPhotoLibraryUsageDescription": "HauntQuest Journal accesses your photo library to let you choose media that appears in the app.",
+        "NSMicrophoneUsageDescription": "HauntQuest Journal uses the microphone to record audio tracks that the app attaches to your creations.",
+        "NSLocationWhenInUseUsageDescription": "HauntQuest Journal uses your location to display your position on in-app maps and surface nearby points of interest."
+      }
+    },
+    "android": {
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "icon": "./icon.png",
+    "extra": {
+      "eas": {
+        "projectId": "b49ea4a3-a277-43fa-95ab-989ef0e7e41e"
+      }
+    }
+  }
+}
